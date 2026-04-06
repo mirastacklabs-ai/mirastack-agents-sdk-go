@@ -9,7 +9,7 @@
 //
 // Usage in a plugin:
 //
-//	import "github.com/mirastacklabs-ai/mirastack-sdk-go/datetimeutils"
+//	import "github.com/mirastacklabs-ai/mirastack-agents-sdk-go/datetimeutils"
 //
 //	// From ExecuteRequest.TimeRange.StartEpochMs
 //	promQL := datetimeutils.FormatEpochSeconds(startMs)     // → "1743580800"

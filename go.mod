@@ -1,4 +1,4 @@
-module github.com/mirastacklabs-ai/mirastack-sdk-go
+module github.com/mirastacklabs-ai/mirastack-agents-sdk-go
 
 go 1.23.0
 

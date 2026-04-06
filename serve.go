@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	pluginv1 "github.com/mirastacklabs-ai/mirastack-sdk-go/gen/pluginv1"
+	pluginv1 "github.com/mirastacklabs-ai/mirastack-agents-sdk-go/gen/pluginv1"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding"
@@ -132,38 +132,7 @@ func (a *pluginServiceAdapter) Info(_ context.Context, _ *pluginv1.InfoRequest) 
 	}
 
 	// Convert Actions to proto ActionDef
-	actions := make([]pluginv1.ActionDef, len(info.Actions))
-	for i, act := range info.Actions {
-		actStages := make([]pluginv1.DevOpsStage, len(act.Stages))
-		for j, s := range act.Stages {
-			actStages[j] = pluginv1.DevOpsStage(s + 1)
-		}
-		actIntents := make([]pluginv1.IntentPattern, len(act.Intents))
-		for j, in := range act.Intents {
-			actIntents[j] = pluginv1.IntentPattern{
-				Pattern:     in.Pattern,
-				Confidence:  float32(in.Priority) / 10.0,
-				Description: in.Description,
-				Priority:    in.Priority,
-			}
-		}
-		var inputJSON, outputJSON []byte
-		if len(act.InputParams) > 0 {
-			inputJSON, _ = json.Marshal(act.InputParams)
-		}
-		if len(act.OutputParams) > 0 {
-			outputJSON, _ = json.Marshal(act.OutputParams)
-		}
-		actions[i] = pluginv1.ActionDef{
-			Id:           act.ID,
-			Description:  act.Description,
-			Permission:   pluginv1.Permission(act.Permission + 1),
-			Stages:       actStages,
-			Intents:      actIntents,
-			InputParams:  inputJSON,
-			OutputParams: outputJSON,
-		}
-	}
+	actions := actionsToProto(info.Actions)
 
 	perm := pluginv1.PermissionRead
 	if len(info.Permissions) > 0 {
@@ -197,6 +166,7 @@ func (a *pluginServiceAdapter) Info(_ context.Context, _ *pluginv1.InfoRequest) 
 		Name:            info.Name,
 		Version:         info.Version,
 		Description:     info.Description,
+		Type:            pluginv1.PluginTypeAgent,
 		Permission:      perm,
 		DevopsStages:    stages,
 		DefaultIntents:  intents,
@@ -216,6 +186,7 @@ func (a *pluginServiceAdapter) GetSchema(_ context.Context, _ *pluginv1.GetSchem
 	return &pluginv1.GetSchemaResponse{
 		ParamsJsonSchema: paramsJSON,
 		ResultJsonSchema: resultJSON,
+		Actions:          actionsToProto(schema.Actions),
 	}, nil
 }
 
@@ -260,11 +231,10 @@ func (a *pluginServiceAdapter) Execute(ctx context.Context, req *pluginv1.Execut
 		}, nil
 	}
 
-	resultJSON, _ := json.Marshal(resp.Output)
-
+	// Output is json.RawMessage — direct passthrough to gRPC ResultJson
 	return &pluginv1.ExecuteResponse{
 		Success:    true,
-		ResultJson: resultJSON,
+		ResultJson: []byte(resp.Output),
 		DurationMs: time.Since(start).Milliseconds(),
 	}, nil
 }
@@ -294,4 +264,42 @@ func (a *pluginServiceAdapter) ConfigUpdated(ctx context.Context, req *pluginv1.
 	return &pluginv1.ConfigUpdatedResponse{
 		Acknowledged: true,
 	}, nil
+}
+
+// actionsToProto converts SDK Action structs to proto ActionDef messages.
+// Used by both Info() and GetSchema() adapters.
+func actionsToProto(actions []Action) []pluginv1.ActionDef {
+	defs := make([]pluginv1.ActionDef, len(actions))
+	for i, act := range actions {
+		stages := make([]pluginv1.DevOpsStage, len(act.Stages))
+		for j, s := range act.Stages {
+			stages[j] = pluginv1.DevOpsStage(s + 1)
+		}
+		intents := make([]pluginv1.IntentPattern, len(act.Intents))
+		for j, in := range act.Intents {
+			intents[j] = pluginv1.IntentPattern{
+				Pattern:     in.Pattern,
+				Confidence:  float32(in.Priority) / 10.0,
+				Description: in.Description,
+				Priority:    in.Priority,
+			}
+		}
+		var inputJSON, outputJSON []byte
+		if len(act.InputParams) > 0 {
+			inputJSON, _ = json.Marshal(act.InputParams)
+		}
+		if len(act.OutputParams) > 0 {
+			outputJSON, _ = json.Marshal(act.OutputParams)
+		}
+		defs[i] = pluginv1.ActionDef{
+			Id:           act.ID,
+			Description:  act.Description,
+			Permission:   pluginv1.Permission(act.Permission + 1),
+			Stages:       stages,
+			Intents:      intents,
+			InputParams:  inputJSON,
+			OutputParams: outputJSON,
+		}
+	}
+	return defs
 }

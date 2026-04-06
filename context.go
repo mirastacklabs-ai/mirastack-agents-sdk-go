@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	pluginv1 "github.com/mirastacklabs-ai/mirastack-sdk-go/gen/pluginv1"
+	pluginv1 "github.com/mirastacklabs-ai/mirastack-agents-sdk-go/gen/pluginv1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"

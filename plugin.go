@@ -2,6 +2,7 @@ package mirastack
 
 import (
 	"context"
+	"encoding/json"
 )
 
 // Plugin is the interface every MIRASTACK plugin must implement.
@@ -66,9 +67,13 @@ type Action struct {
 }
 
 // PluginSchema describes inputs and outputs.
+// New plugins should populate Actions with per-action schema.
+// Flat InputParams/OutputParams are retained for backward compatibility
+// with plugins that have not migrated to structured actions.
 type PluginSchema struct {
-	InputParams  []ParamSchema
-	OutputParams []ParamSchema
+	InputParams  []ParamSchema `json:"input_params,omitempty"`
+	OutputParams []ParamSchema `json:"output_params,omitempty"`
+	Actions      []Action      `json:"actions,omitempty"`
 }
 
 // ParamSchema describes a single parameter.
@@ -101,8 +106,9 @@ type ExecuteRequest struct {
 }
 
 // ExecuteResponse is what a plugin returns after execution.
+// Output is typed JSON produced by RespondMap or RespondJSON.
 type ExecuteResponse struct {
-	Output map[string]string
+	Output json.RawMessage
 	Logs   []string
 }
 

@@ -40,6 +40,15 @@ const (
 	ExecutionModeAutonomous ExecutionMode = 3
 )
 
+type PluginType int32
+
+const (
+	PluginTypeUnspecified PluginType = 0
+	PluginTypeAgent      PluginType = 1
+	PluginTypeProvider   PluginType = 2
+	PluginTypeConnector  PluginType = 3
+)
+
 // ---------------------------------------------------------------------------
 // PluginService Messages
 // ---------------------------------------------------------------------------
@@ -79,6 +88,7 @@ type InfoResponse struct {
 	Name             string              `json:"name"`
 	Version          string              `json:"version"`
 	Description      string              `json:"description"`
+	Type             PluginType          `json:"type"`
 	Permission       Permission          `json:"permission"`
 	DevopsStages     []DevOpsStage       `json:"devops_stages"`
 	DefaultIntents   []IntentPattern     `json:"default_intents"`
@@ -99,8 +109,9 @@ type PromptTemplateDef struct {
 type GetSchemaRequest struct{}
 
 type GetSchemaResponse struct {
-	ParamsJsonSchema []byte `json:"params_json_schema"`
-	ResultJsonSchema []byte `json:"result_json_schema"`
+	ParamsJsonSchema []byte      `json:"params_json_schema"`
+	ResultJsonSchema []byte      `json:"result_json_schema"`
+	Actions          []ActionDef `json:"actions,omitempty"`
 }
 
 // TimeRange represents a pre-parsed, absolute UTC time range.
@@ -221,6 +232,7 @@ type LogEventResponse struct {
 type CallPluginRequest struct {
 	CallerPlugin   string `json:"caller_plugin"`
 	TargetPlugin   string `json:"target_plugin"`
+	ActionId       string `json:"action_id,omitempty"`
 	ParamsJson     []byte `json:"params_json"`
 	TimeoutSeconds int32  `json:"timeout_seconds"`
 }
