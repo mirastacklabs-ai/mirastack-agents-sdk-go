@@ -27,12 +27,42 @@ type Plugin interface {
 
 // PluginInfo holds static plugin metadata.
 type PluginInfo struct {
-	Name         string
-	Version      string
+	Name            string
+	Version         string
+	Description     string
+	Permissions     []Permission
+	DevOpsStages    []DevOpsStage
+	Intents         []IntentPattern
+	Actions         []Action
+	PromptTemplates []PromptTemplate
+	ConfigParams    []ConfigParam // Config schema — declares what config keys the plugin accepts
+}
+
+// ConfigParam declares a configuration parameter the plugin accepts.
+// The engine reads these from Info() during registration and seeds them
+// into the unified settings store at plugin.{name}.{key}.
+type ConfigParam struct {
+	Key         string
+	Type        string // "string", "int", "bool", "duration", "json"
+	Required    bool
+	Default     string
+	Description string
+	IsSecret    bool
+}
+
+// Action describes a discrete operation a plugin can perform.
+// Actions are first-class entities that the engine maps intents to.
+// A plugin may declare zero or more actions. When actions are declared,
+// the engine registers their intents and routes matching user messages
+// directly to the plugin with the action_id set on ExecuteRequest.
+type Action struct {
+	ID           string
 	Description  string
-	Permissions  []Permission
-	DevOpsStages []DevOpsStage
+	Permission   Permission
+	Stages       []DevOpsStage
 	Intents      []IntentPattern
+	InputParams  []ParamSchema
+	OutputParams []ParamSchema
 }
 
 // PluginSchema describes inputs and outputs.
@@ -49,13 +79,25 @@ type ParamSchema struct {
 	Description string
 }
 
+// TimeRange represents a pre-parsed, absolute UTC time range delivered by the engine.
+// Plugins receive this on ExecuteRequest and use SDK datetimeutils to format epochs
+// for their specific backends (Prometheus, Jaeger, VictoriaLogs, etc.).
+type TimeRange struct {
+	StartEpochMs       int64  `json:"start_epoch_ms"`
+	EndEpochMs         int64  `json:"end_epoch_ms"`
+	Timezone           string `json:"timezone,omitempty"`
+	OriginalExpression string `json:"original_expression,omitempty"`
+}
+
 // ExecuteRequest contains the parameters for a plugin execution.
 type ExecuteRequest struct {
 	ExecutionID string
 	WorkflowID  string
 	StepID      string
+	ActionID    string
 	Params      map[string]string
 	Mode        ExecutionMode
+	TimeRange   *TimeRange
 }
 
 // ExecuteResponse is what a plugin returns after execution.
@@ -69,6 +111,15 @@ type IntentPattern struct {
 	Pattern     string
 	Description string
 	Priority    int32
+}
+
+// PromptTemplate is a prompt template contributed by a plugin.
+// The engine auto-ingests these during plugin registration and makes them
+// available through the Prompt Template Store for LLM interactions.
+type PromptTemplate struct {
+	Name        string // Unique template name (e.g. "query_metrics_context")
+	Description string // Human-readable description
+	Content     string // Go text/template content
 }
 
 // Permission levels for plugin actions.
@@ -102,3 +153,10 @@ const (
 	ModeGuided
 	ModeAutonomous
 )
+
+// EngineAware is an optional interface plugins implement to receive the EngineContext.
+// Plugins that need engine callbacks (cache, call other plugins, etc.) should implement this.
+// Serve() will call SetEngineContext before any Execute calls.
+type EngineAware interface {
+	SetEngineContext(ec *EngineContext)
+}
