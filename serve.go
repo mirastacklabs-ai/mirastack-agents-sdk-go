@@ -36,6 +36,11 @@ func Serve(plugin Plugin) {
 		logger.Fatal("plugin.Info() must not return nil")
 	}
 
+	// Validate plugin metadata before starting the gRPC server.
+	if err := validatePlugin(info); err != nil {
+		logger.Fatal("plugin validation failed", zap.Error(err))
+	}
+
 	// Generate a unique instance ID for this process. Every plugin instance
 	// gets its own UUID so the engine can distinguish horizontally-scaled
 	// replicas and scope Valkey health keys per instance.

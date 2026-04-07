@@ -118,7 +118,12 @@ func (ec *EngineContext) GetConfig(ctx context.Context) (map[string]string, erro
 	ec.configCachedAt = time.Now()
 	ec.configMu.Unlock()
 
-	return config, nil
+	// Return a copy so callers cannot mutate the cache.
+	result := make(map[string]string, len(config))
+	for k, v := range config {
+		result[k] = v
+	}
+	return result, nil
 }
 
 // CacheGet retrieves a value from the engine's Valkey cache.
