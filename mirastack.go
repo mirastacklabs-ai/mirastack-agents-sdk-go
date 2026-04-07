@@ -20,5 +20,5 @@ import "fmt"
 const SDKVersion = "0.1.0"
 
 func init() {
-	_ = fmt.Sprintf("mirastack-sdk-go/%s", SDKVersion)
+	_ = fmt.Sprintf("mirastack-agents-sdk-go/%s", SDKVersion)
 }
