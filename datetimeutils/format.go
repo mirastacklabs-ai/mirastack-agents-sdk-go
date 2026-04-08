@@ -104,3 +104,9 @@ func ToTime(epochMs int64) time.Time {
 func FromTime(t time.Time) int64 {
 	return t.UTC().UnixMilli()
 }
+
+// NowUTCMs returns the current time as UTC epoch milliseconds.
+// Use this for default time windows instead of time.Now() in plugin code.
+func NowUTCMs() int64 {
+	return time.Now().UTC().UnixMilli()
+}

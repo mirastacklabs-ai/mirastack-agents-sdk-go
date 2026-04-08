@@ -12,6 +12,11 @@ import (
 
 	"github.com/google/uuid"
 	pluginv1 "github.com/mirastacklabs-ai/mirastack-agents-sdk-go/gen/pluginv1"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding"
@@ -56,7 +61,14 @@ func Serve(plugin Plugin) {
 		logger.Fatal("failed to listen", zap.Error(err))
 	}
 
-	server := grpc.NewServer()
+	// Initialize OpenTelemetry (no-op when MIRASTACK_OTEL_ENABLED != "true")
+	otelShutdown, otelErr := initOTel(context.Background(), info.Name, logger)
+	if otelErr != nil {
+		logger.Warn("OTel initialization failed, continuing without tracing", zap.Error(otelErr))
+		otelShutdown = noopOTelShutdown
+	}
+
+	server := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
 
 	// Register the PluginService adapter that delegates to the Plugin interface
 	adapter := &pluginServiceAdapter{plugin: plugin, instanceID: instanceID, logger: logger}
@@ -98,6 +110,11 @@ func Serve(plugin Plugin) {
 	go func() {
 		<-sigCh
 		logger.Info("shutting down plugin")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := otelShutdown(shutdownCtx); err != nil {
+			logger.Warn("OTel shutdown error", zap.Error(err))
+		}
 		server.GracefulStop()
 	}()
 
@@ -196,6 +213,17 @@ func (a *pluginServiceAdapter) GetSchema(_ context.Context, _ *pluginv1.GetSchem
 }
 
 func (a *pluginServiceAdapter) Execute(ctx context.Context, req *pluginv1.ExecuteRequest) (*pluginv1.ExecuteResponse, error) {
+	tracer := otel.Tracer(tracerName)
+	ctx, span := tracer.Start(ctx, "plugin.execute",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("plugin.action", req.ActionId),
+		attribute.String("plugin.execution_id", req.ExecutionId),
+	)
+
 	start := time.Now()
 
 	// Decode params from JSON
@@ -229,12 +257,16 @@ func (a *pluginServiceAdapter) Execute(ctx context.Context, req *pluginv1.Execut
 
 	resp, err := a.plugin.Execute(ctx, sdkReq)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return &pluginv1.ExecuteResponse{
 			Success:    false,
 			Error:      err.Error(),
 			DurationMs: time.Since(start).Milliseconds(),
 		}, nil
 	}
+
+	span.SetAttributes(attribute.Bool("plugin.success", true))
 
 	// Output is json.RawMessage — direct passthrough to gRPC ResultJson
 	return &pluginv1.ExecuteResponse{
