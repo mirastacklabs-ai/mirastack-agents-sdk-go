@@ -76,11 +76,13 @@ func Serve(plugin Plugin) {
 
 	// Connect to the engine if address provided (for EngineContext callbacks)
 	engineAddr := os.Getenv("MIRASTACK_ENGINE_ADDR")
+	var engineCtx *EngineContext
 	if engineAddr != "" {
-		engineCtx, err := NewEngineContext(engineAddr, info.Name, instanceID)
+		ec, err := NewEngineContext(engineAddr, info.Name, instanceID)
 		if err != nil {
 			logger.Warn("failed to connect to engine, callbacks unavailable", zap.Error(err))
 		} else {
+			engineCtx = ec
 			defer engineCtx.Close()
 			logger.Info("connected to engine for callbacks", zap.String("engine_addr", engineAddr))
 
@@ -103,6 +105,25 @@ func Serve(plugin Plugin) {
 		zap.String("addr", lis.Addr().String()),
 	)
 
+	// Self-register with the engine if connected. The engine connects back to
+	// our gRPC address, calls Info()/GetSchema(), validates, and ingests.
+	if engineCtx != nil {
+		advertiseAddr := resolveAdvertiseAddr(addr.Port)
+		regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		pluginID, err := engineCtx.RegisterSelf(regCtx, advertiseAddr, pluginv1.PluginTypeAgent, info.Version)
+		regCancel()
+		if err != nil {
+			logger.Warn("self-registration with engine failed, engine may register via probe",
+				zap.Error(err),
+			)
+		} else {
+			logger.Info("self-registered with engine",
+				zap.String("plugin_id", pluginID),
+				zap.String("advertise_addr", advertiseAddr),
+			)
+		}
+	}
+
 	// Handle shutdown
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -110,6 +131,18 @@ func Serve(plugin Plugin) {
 	go func() {
 		<-sigCh
 		logger.Info("shutting down plugin")
+
+		// Deregister from engine before stopping gRPC server
+		if engineCtx != nil {
+			deregCtx, deregCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := engineCtx.DeregisterSelf(deregCtx); err != nil {
+				logger.Warn("deregistration from engine failed", zap.Error(err))
+			} else {
+				logger.Info("deregistered from engine")
+			}
+			deregCancel()
+		}
+
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := otelShutdown(shutdownCtx); err != nil {
@@ -339,4 +372,19 @@ func actionsToProto(actions []Action) []pluginv1.ActionDef {
 		}
 	}
 	return defs
+}
+
+// resolveAdvertiseAddr determines the externally reachable address for this
+// plugin. Order of precedence:
+//  1. MIRASTACK_PLUGIN_ADVERTISE_ADDR env var (explicit, e.g. "plugin-host:50051")
+//  2. os.Hostname() + bound port (best-effort in containerized environments)
+func resolveAdvertiseAddr(boundPort int) string {
+	if addr := os.Getenv("MIRASTACK_PLUGIN_ADVERTISE_ADDR"); addr != "" {
+		return addr
+	}
+	hostname, err := os.Hostname()
+	if err != nil || hostname == "" {
+		hostname = "localhost"
+	}
+	return fmt.Sprintf("%s:%d", hostname, boundPort)
 }

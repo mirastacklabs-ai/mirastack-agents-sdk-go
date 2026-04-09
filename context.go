@@ -232,3 +232,38 @@ func (ec *EngineContext) Close() error {
 	}
 	return nil
 }
+
+// RegisterSelf announces this plugin to the engine so it becomes part of the
+// active plugin registry without requiring an engine restart. The engine
+// connects back to grpcAddr, calls Info()/GetSchema(), validates type
+// boundaries, and ingests intents/templates/config schema.
+func (ec *EngineContext) RegisterSelf(ctx context.Context, grpcAddr string, pluginType pluginv1.PluginType, version string) (string, error) {
+	resp, err := ec.client.RegisterPlugin(ctx, &pluginv1.RegisterPluginRequest{
+		Name:       ec.pluginName,
+		Version:    version,
+		GRPCAddr:   grpcAddr,
+		PluginType: pluginType,
+		InstanceID: ec.instanceID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("register plugin: %w", err)
+	}
+	if !resp.Success {
+		return "", fmt.Errorf("register plugin rejected: %s", resp.Error)
+	}
+	return resp.PluginID, nil
+}
+
+// DeregisterSelf tells the engine this plugin is shutting down so it can be
+// removed from the active registry immediately (rather than waiting for a
+// health check timeout).
+func (ec *EngineContext) DeregisterSelf(ctx context.Context) error {
+	_, err := ec.client.DeregisterPlugin(ctx, &pluginv1.DeregisterPluginRequest{
+		Name:       ec.pluginName,
+		InstanceID: ec.instanceID,
+	})
+	if err != nil {
+		return fmt.Errorf("deregister plugin: %w", err)
+	}
+	return nil
+}

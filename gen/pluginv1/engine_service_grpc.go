@@ -20,6 +20,8 @@ type EngineServiceServer interface {
 	RequestApproval(context.Context, *RequestApprovalRequest) (*RequestApprovalResponse, error)
 	LogEvent(context.Context, *LogEventRequest) (*LogEventResponse, error)
 	CallPlugin(context.Context, *CallPluginRequest) (*CallPluginResponse, error)
+	RegisterPlugin(context.Context, *RegisterPluginRequest) (*RegisterPluginResponse, error)
+	DeregisterPlugin(context.Context, *DeregisterPluginRequest) (*DeregisterPluginResponse, error)
 }
 
 // UnimplementedEngineServiceServer provides forward compatibility.
@@ -46,6 +48,12 @@ func (UnimplementedEngineServiceServer) LogEvent(context.Context, *LogEventReque
 func (UnimplementedEngineServiceServer) CallPlugin(context.Context, *CallPluginRequest) (*CallPluginResponse, error) {
 	return nil, fmt.Errorf("CallPlugin not implemented")
 }
+func (UnimplementedEngineServiceServer) RegisterPlugin(context.Context, *RegisterPluginRequest) (*RegisterPluginResponse, error) {
+	return nil, fmt.Errorf("RegisterPlugin not implemented")
+}
+func (UnimplementedEngineServiceServer) DeregisterPlugin(context.Context, *DeregisterPluginRequest) (*DeregisterPluginResponse, error) {
+	return nil, fmt.Errorf("DeregisterPlugin not implemented")
+}
 
 // EngineService_ServiceDesc is the grpc.ServiceDesc for EngineService.
 var EngineService_ServiceDesc = grpc.ServiceDesc{
@@ -59,6 +67,8 @@ var EngineService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "RequestApproval", Handler: _EngineService_RequestApproval_Handler},
 		{MethodName: "LogEvent", Handler: _EngineService_LogEvent_Handler},
 		{MethodName: "CallPlugin", Handler: _EngineService_CallPlugin_Handler},
+		{MethodName: "RegisterPlugin", Handler: _EngineService_RegisterPlugin_Handler},
+		{MethodName: "DeregisterPlugin", Handler: _EngineService_DeregisterPlugin_Handler},
 	},
 	Streams: []grpc.StreamDesc{},
 }
@@ -126,6 +136,22 @@ func _EngineService_CallPlugin_Handler(srv interface{}, ctx context.Context, dec
 	return srv.(EngineServiceServer).CallPlugin(ctx, req)
 }
 
+func _EngineService_RegisterPlugin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
+	req := new(RegisterPluginRequest)
+	if err := dec(req); err != nil {
+		return nil, err
+	}
+	return srv.(EngineServiceServer).RegisterPlugin(ctx, req)
+}
+
+func _EngineService_DeregisterPlugin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
+	req := new(DeregisterPluginRequest)
+	if err := dec(req); err != nil {
+		return nil, err
+	}
+	return srv.(EngineServiceServer).DeregisterPlugin(ctx, req)
+}
+
 // ---------------------------------------------------------------------------
 // EngineService — Client (plugins use this to call back to the engine)
 // ---------------------------------------------------------------------------
@@ -139,6 +165,8 @@ type EngineServiceClient interface {
 	RequestApproval(ctx context.Context, req *RequestApprovalRequest) (*RequestApprovalResponse, error)
 	LogEvent(ctx context.Context, req *LogEventRequest) (*LogEventResponse, error)
 	CallPlugin(ctx context.Context, req *CallPluginRequest) (*CallPluginResponse, error)
+	RegisterPlugin(ctx context.Context, req *RegisterPluginRequest) (*RegisterPluginResponse, error)
+	DeregisterPlugin(ctx context.Context, req *DeregisterPluginRequest) (*DeregisterPluginResponse, error)
 }
 
 type engineServiceClient struct {
@@ -207,6 +235,24 @@ func (c *engineServiceClient) LogEvent(ctx context.Context, req *LogEventRequest
 func (c *engineServiceClient) CallPlugin(ctx context.Context, req *CallPluginRequest) (*CallPluginResponse, error) {
 	out := new(CallPluginResponse)
 	err := c.cc.Invoke(ctx, "/mirastack.plugin.v1.EngineService/CallPlugin", req, out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *engineServiceClient) RegisterPlugin(ctx context.Context, req *RegisterPluginRequest) (*RegisterPluginResponse, error) {
+	out := new(RegisterPluginResponse)
+	err := c.cc.Invoke(ctx, "/mirastack.plugin.v1.EngineService/RegisterPlugin", req, out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *engineServiceClient) DeregisterPlugin(ctx context.Context, req *DeregisterPluginRequest) (*DeregisterPluginResponse, error) {
+	out := new(DeregisterPluginResponse)
+	err := c.cc.Invoke(ctx, "/mirastack.plugin.v1.EngineService/DeregisterPlugin", req, out)
 	if err != nil {
 		return nil, err
 	}

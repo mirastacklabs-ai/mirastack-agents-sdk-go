@@ -243,3 +243,35 @@ type CallPluginResponse struct {
 	Error      string `json:"error"`
 	DurationMs int64  `json:"duration_ms"`
 }
+
+// ---------------------------------------------------------------------------
+// Plugin Self-Registration Messages
+// ---------------------------------------------------------------------------
+
+// RegisterPluginRequest is sent by a plugin to the engine to announce itself.
+// The engine connects back to the plugin's gRPC address and performs the full
+// registration handshake (Info, GetSchema, validate, ingest intents/templates).
+type RegisterPluginRequest struct {
+	Name       string     `json:"name"`
+	Version    string     `json:"version"`
+	GRPCAddr   string     `json:"grpc_addr"`    // Externally reachable gRPC address (e.g., "plugin-host:50051")
+	PluginType PluginType `json:"plugin_type"`
+	InstanceID string     `json:"instance_id"`
+}
+
+type RegisterPluginResponse struct {
+	Success  bool   `json:"success"`
+	PluginID string `json:"plugin_id"` // Stable PluginID assigned by the engine
+	Error    string `json:"error"`
+}
+
+// DeregisterPluginRequest is sent by a plugin during graceful shutdown
+// so the engine can immediately remove it from the active registry.
+type DeregisterPluginRequest struct {
+	Name       string `json:"name"`
+	InstanceID string `json:"instance_id"`
+}
+
+type DeregisterPluginResponse struct {
+	Acknowledged bool `json:"acknowledged"`
+}
