@@ -105,23 +105,15 @@ func Serve(plugin Plugin) {
 		zap.String("addr", lis.Addr().String()),
 	)
 
-	// Self-register with the engine if connected. The engine connects back to
-	// our gRPC address, calls Info()/GetSchema(), validates, and ingests.
+	// Self-register with the engine in a background goroutine with
+	// exponential backoff.  Registration must not block the gRPC server —
+	// the plugin must be ready to accept Execute / HealthCheck calls
+	// immediately.  In container and Kubernetes environments every replica
+	// should set MIRASTACK_PLUGIN_ADVERTISE_ADDR to the Service name
+	// (e.g. "agent-query-vmetrics:50051") so the engine dials the
+	// infrastructure load-balancer, not an ephemeral pod/container address.
 	if engineCtx != nil {
-		advertiseAddr := resolveAdvertiseAddr(addr.Port)
-		regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		pluginID, err := engineCtx.RegisterSelf(regCtx, advertiseAddr, pluginv1.PluginTypeAgent, info.Version)
-		regCancel()
-		if err != nil {
-			logger.Warn("self-registration with engine failed, engine may register via probe",
-				zap.Error(err),
-			)
-		} else {
-			logger.Info("self-registered with engine",
-				zap.String("plugin_id", pluginID),
-				zap.String("advertise_addr", advertiseAddr),
-			)
-		}
+		go registerWithRetry(logger, engineCtx, resolveAdvertiseAddr(addr.Port), pluginv1.PluginTypeAgent, info.Version)
 	}
 
 	// Handle shutdown
@@ -374,10 +366,20 @@ func actionsToProto(actions []Action) []pluginv1.ActionDef {
 	return defs
 }
 
-// resolveAdvertiseAddr determines the externally reachable address for this
-// plugin. Order of precedence:
-//  1. MIRASTACK_PLUGIN_ADVERTISE_ADDR env var (explicit, e.g. "plugin-host:50051")
-//  2. os.Hostname() + bound port (best-effort in containerized environments)
+// resolveAdvertiseAddr determines the address the engine should use to reach
+// this plugin instance via gRPC.
+//
+// Order of precedence:
+//
+//  1. MIRASTACK_PLUGIN_ADVERTISE_ADDR — explicit, always wins.
+//     In containerized (Docker/Podman) and Kubernetes deployments this MUST be
+//     set to the Service DNS name (e.g. "agent-query-vmetrics:50051" for
+//     Compose or "agent-query-vmetrics.ns.svc.cluster.local:50051" for K8s).
+//     For horizontal scaling every replica advertises the same Service address;
+//     the infrastructure (kube-proxy, Compose DNS round-robin) handles
+//     load-balancing across pods/containers.
+//  2. os.Hostname() + bound port — suitable for native (bare-metal / VM)
+//     installs where the OS hostname is DNS-resolvable.
 func resolveAdvertiseAddr(boundPort int) string {
 	if addr := os.Getenv("MIRASTACK_PLUGIN_ADVERTISE_ADDR"); addr != "" {
 		return addr
@@ -387,4 +389,50 @@ func resolveAdvertiseAddr(boundPort int) string {
 		hostname = "localhost"
 	}
 	return fmt.Sprintf("%s:%d", hostname, boundPort)
+}
+
+// registerWithRetry attempts self-registration with the engine using
+// exponential backoff.  It runs in a background goroutine so the gRPC
+// server remains available for incoming calls immediately after startup.
+//
+// Backoff schedule: 2 s → 4 s → 8 s → 16 s → 30 s (cap), up to 10 attempts.
+func registerWithRetry(logger *zap.Logger, ec *EngineContext, advertiseAddr string, pluginType pluginv1.PluginType, version string) {
+	const (
+		maxAttempts = 10
+		maxBackoff  = 30 * time.Second
+	)
+	backoff := 2 * time.Second
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		pluginID, err := ec.RegisterSelf(regCtx, advertiseAddr, pluginType, version)
+		regCancel()
+
+		if err == nil {
+			logger.Info("self-registered with engine",
+				zap.String("plugin_id", pluginID),
+				zap.String("advertise_addr", advertiseAddr),
+			)
+			return
+		}
+
+		if attempt == maxAttempts {
+			logger.Error("self-registration exhausted all retries — plugin will not be discoverable by the engine",
+				zap.Int("attempts", maxAttempts),
+				zap.Error(err),
+			)
+			return
+		}
+
+		logger.Warn("self-registration attempt failed, retrying",
+			zap.Int("attempt", attempt),
+			zap.Duration("backoff", backoff),
+			zap.Error(err),
+		)
+		time.Sleep(backoff)
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
 }
