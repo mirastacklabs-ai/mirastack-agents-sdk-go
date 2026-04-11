@@ -21,6 +21,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding"
+	"google.golang.org/grpc/keepalive"
 )
 
 func init() {
@@ -69,7 +70,17 @@ func Serve(plugin Plugin) {
 		otelShutdown = noopOTelShutdown
 	}
 
-	server := grpc.NewServer(grpc.StatsHandler(otelgrpc.NewServerHandler()))
+	server := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             20 * time.Second, // allow client pings every 20s
+			PermitWithoutStream: true,              // allow pings with no active RPCs
+		}),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    30 * time.Second, // server-side keepalive ping interval
+			Timeout: 10 * time.Second, // wait for ping ack
+		}),
+	)
 
 	// Register the PluginService adapter that delegates to the Plugin interface
 	adapter := &pluginServiceAdapter{plugin: plugin, instanceID: instanceID, logger: logger}

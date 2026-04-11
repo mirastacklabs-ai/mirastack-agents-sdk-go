@@ -12,6 +12,7 @@ import (
 	pluginv1 "github.com/mirastacklabs-ai/mirastack-agents-sdk-go/gen/pluginv1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -64,6 +65,11 @@ func NewEngineContext(engineAddr, pluginName, instanceID string) (*EngineContext
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(grpc.CallContentSubtype(pluginv1.JSONCodec{}.Name())),
 		grpc.WithUnaryInterceptor(identityInterceptor),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                30 * time.Second,
+			Timeout:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("connect to engine at %s: %w", engineAddr, err)
