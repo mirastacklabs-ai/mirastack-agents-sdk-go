@@ -481,9 +481,14 @@ func maintainRegistration(logger *zap.Logger, ec *EngineContext, advertiseAddr s
 		)
 	}
 
-	// Phase 2: Persistent heartbeat loop — re-register periodically.
-	// This handles engine restarts: when the engine comes back, the next
-	// heartbeat re-establishes the plugin in the engine's in-memory registry.
+	// Phase 2: Persistent heartbeat loop.
+	// Sends a lightweight Heartbeat RPC instead of full RegisterPlugin.
+	// If the engine responds with re_register_required (e.g. engine restarted
+	// and lost in-memory state), the SDK performs a full RegisterSelf to
+	// re-establish the plugin in the engine's registry.
+	// If the engine returns a non-zero heartbeat_interval_seconds, the SDK
+	// adopts it (unless overridden by env var).
+	envOverride := os.Getenv("MIRASTACK_PLUGIN_HEARTBEAT_INTERVAL") != ""
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 
@@ -493,14 +498,14 @@ func maintainRegistration(logger *zap.Logger, ec *EngineContext, advertiseAddr s
 		case <-stopCh:
 			return
 		case <-ticker.C:
-			regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			_, err := ec.RegisterSelf(regCtx, advertiseAddr, pluginType, version)
-			regCancel()
+			hbCtx, hbCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			resp, err := ec.Heartbeat(hbCtx)
+			hbCancel()
 
 			if err != nil {
 				consecutiveFailures++
 				if consecutiveFailures == 1 || consecutiveFailures%10 == 0 {
-					logger.Warn("registration heartbeat failed",
+					logger.Warn("heartbeat failed",
 						zap.Int("consecutive_failures", consecutiveFailures),
 						zap.Error(err),
 					)
@@ -508,8 +513,37 @@ func maintainRegistration(logger *zap.Logger, ec *EngineContext, advertiseAddr s
 				continue
 			}
 
+			// Adopt engine-recommended heartbeat interval (if no env override).
+			if !envOverride && resp.HeartbeatIntervalSeconds > 0 {
+				newInterval := time.Duration(resp.HeartbeatIntervalSeconds) * time.Second
+				if newInterval != heartbeatInterval {
+					heartbeatInterval = newInterval
+					ticker.Reset(heartbeatInterval)
+					logger.Info("adopted engine-recommended heartbeat interval",
+						zap.Duration("interval", heartbeatInterval),
+					)
+				}
+			}
+
+			if resp.ReRegisterRequired {
+				logger.Info("engine requested re-registration, performing full RegisterPlugin")
+				regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
+				pluginID, regErr := ec.RegisterSelf(regCtx, advertiseAddr, pluginType, version)
+				regCancel()
+				if regErr != nil {
+					consecutiveFailures++
+					logger.Warn("re-registration after heartbeat failed",
+						zap.Error(regErr),
+					)
+					continue
+				}
+				logger.Info("re-registered with engine after heartbeat",
+					zap.String("plugin_id", pluginID),
+				)
+			}
+
 			if consecutiveFailures > 0 {
-				logger.Info("registration heartbeat recovered after failures",
+				logger.Info("heartbeat recovered after failures",
 					zap.Int("previous_failures", consecutiveFailures),
 				)
 			}

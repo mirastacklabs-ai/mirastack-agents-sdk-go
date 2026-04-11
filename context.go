@@ -273,3 +273,17 @@ func (ec *EngineContext) DeregisterSelf(ctx context.Context) error {
 	}
 	return nil
 }
+
+// Heartbeat sends a lightweight liveness signal to the engine.
+// Returns the engine's response which may indicate re-registration is required
+// (e.g. after an engine restart) and an optional recommended heartbeat interval.
+func (ec *EngineContext) Heartbeat(ctx context.Context) (*pluginv1.HeartbeatResponse, error) {
+	resp, err := ec.client.Heartbeat(ctx, &pluginv1.HeartbeatRequest{
+		Name:       ec.pluginName,
+		InstanceID: ec.instanceID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("heartbeat: %w", err)
+	}
+	return resp, nil
+}

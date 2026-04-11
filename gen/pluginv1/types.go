@@ -275,3 +275,18 @@ type DeregisterPluginRequest struct {
 type DeregisterPluginResponse struct {
 	Acknowledged bool `json:"acknowledged"`
 }
+
+// HeartbeatRequest is a lightweight liveness signal sent periodically by plugins.
+// Unlike RegisterPlugin, it does NOT trigger a full registration handshake.
+type HeartbeatRequest struct {
+	Name       string `json:"name"`
+	InstanceID string `json:"instance_id"`
+}
+
+// HeartbeatResponse tells the plugin whether the engine recognizes it.
+// If ReRegisterRequired is true, the plugin should perform a full RegisterPlugin.
+type HeartbeatResponse struct {
+	Acknowledged             bool  `json:"acknowledged"`
+	ReRegisterRequired       bool  `json:"re_register_required"`
+	HeartbeatIntervalSeconds int32 `json:"heartbeat_interval_seconds,omitempty"`
+}

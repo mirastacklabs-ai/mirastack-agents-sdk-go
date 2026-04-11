@@ -22,6 +22,7 @@ type EngineServiceServer interface {
 	CallPlugin(context.Context, *CallPluginRequest) (*CallPluginResponse, error)
 	RegisterPlugin(context.Context, *RegisterPluginRequest) (*RegisterPluginResponse, error)
 	DeregisterPlugin(context.Context, *DeregisterPluginRequest) (*DeregisterPluginResponse, error)
+	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
 }
 
 // UnimplementedEngineServiceServer provides forward compatibility.
@@ -54,6 +55,9 @@ func (UnimplementedEngineServiceServer) RegisterPlugin(context.Context, *Registe
 func (UnimplementedEngineServiceServer) DeregisterPlugin(context.Context, *DeregisterPluginRequest) (*DeregisterPluginResponse, error) {
 	return nil, fmt.Errorf("DeregisterPlugin not implemented")
 }
+func (UnimplementedEngineServiceServer) Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error) {
+	return nil, fmt.Errorf("Heartbeat not implemented")
+}
 
 // EngineService_ServiceDesc is the grpc.ServiceDesc for EngineService.
 var EngineService_ServiceDesc = grpc.ServiceDesc{
@@ -69,6 +73,7 @@ var EngineService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "CallPlugin", Handler: _EngineService_CallPlugin_Handler},
 		{MethodName: "RegisterPlugin", Handler: _EngineService_RegisterPlugin_Handler},
 		{MethodName: "DeregisterPlugin", Handler: _EngineService_DeregisterPlugin_Handler},
+		{MethodName: "Heartbeat", Handler: _EngineService_Heartbeat_Handler},
 	},
 	Streams: []grpc.StreamDesc{},
 }
@@ -152,6 +157,14 @@ func _EngineService_DeregisterPlugin_Handler(srv interface{}, ctx context.Contex
 	return srv.(EngineServiceServer).DeregisterPlugin(ctx, req)
 }
 
+func _EngineService_Heartbeat_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
+	req := new(HeartbeatRequest)
+	if err := dec(req); err != nil {
+		return nil, err
+	}
+	return srv.(EngineServiceServer).Heartbeat(ctx, req)
+}
+
 // ---------------------------------------------------------------------------
 // EngineService — Client (plugins use this to call back to the engine)
 // ---------------------------------------------------------------------------
@@ -167,6 +180,7 @@ type EngineServiceClient interface {
 	CallPlugin(ctx context.Context, req *CallPluginRequest) (*CallPluginResponse, error)
 	RegisterPlugin(ctx context.Context, req *RegisterPluginRequest) (*RegisterPluginResponse, error)
 	DeregisterPlugin(ctx context.Context, req *DeregisterPluginRequest) (*DeregisterPluginResponse, error)
+	Heartbeat(ctx context.Context, req *HeartbeatRequest) (*HeartbeatResponse, error)
 }
 
 type engineServiceClient struct {
@@ -253,6 +267,15 @@ func (c *engineServiceClient) RegisterPlugin(ctx context.Context, req *RegisterP
 func (c *engineServiceClient) DeregisterPlugin(ctx context.Context, req *DeregisterPluginRequest) (*DeregisterPluginResponse, error) {
 	out := new(DeregisterPluginResponse)
 	err := c.cc.Invoke(ctx, "/mirastack.plugin.v1.EngineService/DeregisterPlugin", req, out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *engineServiceClient) Heartbeat(ctx context.Context, req *HeartbeatRequest) (*HeartbeatResponse, error) {
+	out := new(HeartbeatResponse)
+	err := c.cc.Invoke(ctx, "/mirastack.plugin.v1.EngineService/Heartbeat", req, out)
 	if err != nil {
 		return nil, err
 	}
