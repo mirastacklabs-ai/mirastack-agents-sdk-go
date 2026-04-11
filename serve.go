@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -105,15 +106,20 @@ func Serve(plugin Plugin) {
 		zap.String("addr", lis.Addr().String()),
 	)
 
-	// Self-register with the engine in a background goroutine with
-	// exponential backoff.  Registration must not block the gRPC server —
-	// the plugin must be ready to accept Execute / HealthCheck calls
-	// immediately.  In container and Kubernetes environments every replica
-	// should set MIRASTACK_PLUGIN_ADVERTISE_ADDR to the Service name
+	// Maintain persistent registration with the engine in a background
+	// goroutine. Registration must not block the gRPC server — the plugin
+	// must be ready to accept Execute / HealthCheck calls immediately.
+	// After initial registration, the goroutine enters a heartbeat loop
+	// that periodically re-registers. This ensures the plugin survives
+	// engine restarts: when the engine comes back, the next heartbeat
+	// re-establishes the registration.
+	// In container and Kubernetes environments every replica should set
+	// MIRASTACK_PLUGIN_ADVERTISE_ADDR to the Service name
 	// (e.g. "agent-query-vmetrics:50051") so the engine dials the
 	// infrastructure load-balancer, not an ephemeral pod/container address.
+	stopCh := make(chan struct{})
 	if engineCtx != nil {
-		go registerWithRetry(logger, engineCtx, resolveAdvertiseAddr(addr.Port), pluginv1.PluginTypeAgent, info.Version)
+		go maintainRegistration(logger, engineCtx, resolveAdvertiseAddr(addr.Port), pluginv1.PluginTypeAgent, info.Version, stopCh)
 	}
 
 	// Handle shutdown
@@ -123,6 +129,9 @@ func Serve(plugin Plugin) {
 	go func() {
 		<-sigCh
 		logger.Info("shutting down plugin")
+
+		// Stop the registration heartbeat loop.
+		close(stopCh)
 
 		// Deregister from engine before stopping gRPC server
 		if engineCtx != nil {
@@ -391,19 +400,32 @@ func resolveAdvertiseAddr(boundPort int) string {
 	return fmt.Sprintf("%s:%d", hostname, boundPort)
 }
 
-// registerWithRetry attempts self-registration with the engine using
-// exponential backoff.  It runs in a background goroutine so the gRPC
-// server remains available for incoming calls immediately after startup.
+// maintainRegistration performs initial registration with exponential backoff,
+// then enters a persistent heartbeat loop that periodically re-registers with
+// the engine. This ensures the plugin survives engine restarts: when the engine
+// comes back, the next heartbeat re-establishes the registration.
 //
-// Backoff schedule: 2 s → 4 s → 8 s → 16 s → 30 s (cap), up to 10 attempts.
-func registerWithRetry(logger *zap.Logger, ec *EngineContext, advertiseAddr string, pluginType pluginv1.PluginType, version string) {
+// The heartbeat interval defaults to 30 seconds and can be overridden via
+// MIRASTACK_PLUGIN_HEARTBEAT_INTERVAL (in seconds).
+//
+// This function blocks until stopCh is closed (shutdown signal).
+func maintainRegistration(logger *zap.Logger, ec *EngineContext, advertiseAddr string, pluginType pluginv1.PluginType, version string, stopCh <-chan struct{}) {
 	const (
-		maxAttempts = 10
-		maxBackoff  = 30 * time.Second
+		initialMaxAttempts = 10
+		maxBackoff         = 30 * time.Second
 	)
-	backoff := 2 * time.Second
 
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	heartbeatInterval := 30 * time.Second
+	if envSecs := os.Getenv("MIRASTACK_PLUGIN_HEARTBEAT_INTERVAL"); envSecs != "" {
+		if secs, err := strconv.Atoi(envSecs); err == nil && secs > 0 {
+			heartbeatInterval = time.Duration(secs) * time.Second
+		}
+	}
+
+	// Phase 1: Initial registration with bounded retries and backoff.
+	backoff := 2 * time.Second
+	registered := false
+	for attempt := 1; attempt <= initialMaxAttempts; attempt++ {
 		regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		pluginID, err := ec.RegisterSelf(regCtx, advertiseAddr, pluginType, version)
 		regCancel()
@@ -413,15 +435,16 @@ func registerWithRetry(logger *zap.Logger, ec *EngineContext, advertiseAddr stri
 				zap.String("plugin_id", pluginID),
 				zap.String("advertise_addr", advertiseAddr),
 			)
-			return
+			registered = true
+			break
 		}
 
-		if attempt == maxAttempts {
-			logger.Error("self-registration exhausted all retries — plugin will not be discoverable by the engine",
-				zap.Int("attempts", maxAttempts),
+		if attempt == initialMaxAttempts {
+			logger.Error("initial registration exhausted all retries — entering heartbeat mode, will keep trying",
+				zap.Int("attempts", initialMaxAttempts),
 				zap.Error(err),
 			)
-			return
+			break
 		}
 
 		logger.Warn("self-registration attempt failed, retrying",
@@ -429,10 +452,57 @@ func registerWithRetry(logger *zap.Logger, ec *EngineContext, advertiseAddr stri
 			zap.Duration("backoff", backoff),
 			zap.Error(err),
 		)
-		time.Sleep(backoff)
+
+		select {
+		case <-stopCh:
+			return
+		case <-time.After(backoff):
+		}
 		backoff *= 2
 		if backoff > maxBackoff {
 			backoff = maxBackoff
+		}
+	}
+
+	if registered {
+		logger.Info("entering registration heartbeat loop",
+			zap.Duration("interval", heartbeatInterval),
+		)
+	}
+
+	// Phase 2: Persistent heartbeat loop — re-register periodically.
+	// This handles engine restarts: when the engine comes back, the next
+	// heartbeat re-establishes the plugin in the engine's in-memory registry.
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	consecutiveFailures := 0
+	for {
+		select {
+		case <-stopCh:
+			return
+		case <-ticker.C:
+			regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_, err := ec.RegisterSelf(regCtx, advertiseAddr, pluginType, version)
+			regCancel()
+
+			if err != nil {
+				consecutiveFailures++
+				if consecutiveFailures == 1 || consecutiveFailures%10 == 0 {
+					logger.Warn("registration heartbeat failed",
+						zap.Int("consecutive_failures", consecutiveFailures),
+						zap.Error(err),
+					)
+				}
+				continue
+			}
+
+			if consecutiveFailures > 0 {
+				logger.Info("registration heartbeat recovered after failures",
+					zap.Int("previous_failures", consecutiveFailures),
+				)
+			}
+			consecutiveFailures = 0
 		}
 	}
 }
