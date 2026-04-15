@@ -230,11 +230,12 @@ type LogEventResponse struct {
 }
 
 type CallPluginRequest struct {
-	CallerPlugin   string `json:"caller_plugin"`
-	TargetPlugin   string `json:"target_plugin"`
-	ActionId       string `json:"action_id,omitempty"`
-	ParamsJson     []byte `json:"params_json"`
-	TimeoutSeconds int32  `json:"timeout_seconds"`
+	CallerPlugin   string     `json:"caller_plugin"`
+	TargetPlugin   string     `json:"target_plugin"`
+	ActionId       string     `json:"action_id,omitempty"`
+	ParamsJson     []byte     `json:"params_json"`
+	TimeoutSeconds int32      `json:"timeout_seconds"`
+	TimeRange      *TimeRange `json:"time_range,omitempty"`
 }
 
 type CallPluginResponse struct {

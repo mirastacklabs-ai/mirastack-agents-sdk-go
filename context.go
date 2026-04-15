@@ -207,6 +207,14 @@ func (ec *EngineContext) LogEvent(ctx context.Context, level, message string, fi
 // CallPlugin invokes another plugin through the engine and returns its output.
 // This enables composite plugins to orchestrate leaf plugins without direct connections.
 func (ec *EngineContext) CallPlugin(ctx context.Context, targetPlugin string, params map[string]string) (map[string]string, error) {
+	return ec.CallPluginWithTimeRange(ctx, targetPlugin, params, nil)
+}
+
+// CallPluginWithTimeRange invokes another plugin through the engine, propagating
+// the given TimeRange so the target plugin receives the same absolute time
+// boundaries as the original request. Use this when orchestrating agent-to-agent
+// calls from within an Execute() handler to prevent time drift.
+func (ec *EngineContext) CallPluginWithTimeRange(ctx context.Context, targetPlugin string, params map[string]string, timeRange *pluginv1.TimeRange) (map[string]string, error) {
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("marshal params: %w", err)
@@ -216,6 +224,7 @@ func (ec *EngineContext) CallPlugin(ctx context.Context, targetPlugin string, pa
 		CallerPlugin: ec.pluginName,
 		TargetPlugin: targetPlugin,
 		ParamsJson:   paramsJSON,
+		TimeRange:    timeRange,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("call plugin %q: %w", targetPlugin, err)
