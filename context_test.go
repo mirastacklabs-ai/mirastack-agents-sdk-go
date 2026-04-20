@@ -17,10 +17,12 @@ import (
 
 type mockEngineClient struct {
 	pluginv1.EngineServiceClient
-	mu        sync.Mutex
-	callCount int64
-	config    map[string]string
-	err       error
+	mu             sync.Mutex
+	callCount      int64
+	config         map[string]string
+	err            error
+	batchEntries   []pluginv1.CacheGetBatchEntry
+	batchErr       error
 }
 
 func (m *mockEngineClient) GetConfig(_ context.Context, req *pluginv1.GetConfigRequest) (*pluginv1.GetConfigResponse, error) {
@@ -35,6 +37,13 @@ func (m *mockEngineClient) GetConfig(_ context.Context, req *pluginv1.GetConfigR
 		cfg[k] = v
 	}
 	return &pluginv1.GetConfigResponse{Config: cfg, Version: 1}, nil
+}
+
+func (m *mockEngineClient) CacheGetBatch(_ context.Context, req *pluginv1.CacheGetBatchRequest) (*pluginv1.CacheGetBatchResponse, error) {
+	if m.batchErr != nil {
+		return nil, m.batchErr
+	}
+	return &pluginv1.CacheGetBatchResponse{Entries: m.batchEntries}, nil
 }
 
 func (m *mockEngineClient) calls() int64 {
@@ -247,5 +256,43 @@ func TestEngineContext_InstanceID(t *testing.T) {
 	ec := newTestEngineContext(&mockEngineClient{})
 	if ec.InstanceID() != "test-instance-001" {
 		t.Errorf("expected 'test-instance-001', got %q", ec.InstanceID())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Tests: CacheGetBatch
+// ---------------------------------------------------------------------------
+
+func TestCacheGetBatch_ReturnsEntries(t *testing.T) {
+	mock := &mockEngineClient{
+		batchEntries: []pluginv1.CacheGetBatchEntry{
+			{Key: "k1", Value: []byte("v1"), Found: true},
+			{Key: "k2", Value: nil, Found: false},
+		},
+	}
+	ec := newTestEngineContext(mock)
+	entries, err := ec.CacheGetBatch(context.Background(), []string{"k1", "k2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+	if entries[0].Key != "k1" || entries[0].Value != "v1" || !entries[0].Found {
+		t.Errorf("entry 0 mismatch: %+v", entries[0])
+	}
+	if entries[1].Key != "k2" || entries[1].Value != "" || entries[1].Found {
+		t.Errorf("entry 1 mismatch: %+v", entries[1])
+	}
+}
+
+func TestCacheGetBatch_Error(t *testing.T) {
+	mock := &mockEngineClient{
+		batchErr: fmt.Errorf("connection refused"),
+	}
+	ec := newTestEngineContext(mock)
+	_, err := ec.CacheGetBatch(context.Background(), []string{"k1"})
+	if err == nil {
+		t.Fatal("expected error, got nil")
 	}
 }

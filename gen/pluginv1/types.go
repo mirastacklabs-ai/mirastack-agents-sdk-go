@@ -180,6 +180,20 @@ type CacheGetResponse struct {
 	Found bool   `json:"found"`
 }
 
+type CacheGetBatchRequest struct {
+	Keys []string `json:"keys"`
+}
+
+type CacheGetBatchResponse struct {
+	Entries []CacheGetBatchEntry `json:"entries"`
+}
+
+type CacheGetBatchEntry struct {
+	Key   string `json:"key"`
+	Value []byte `json:"value"`
+	Found bool   `json:"found"`
+}
+
 type CacheSetRequest struct {
 	Key        string `json:"key"`
 	Value      []byte `json:"value"`

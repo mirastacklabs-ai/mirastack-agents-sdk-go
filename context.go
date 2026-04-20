@@ -144,6 +144,31 @@ func (ec *EngineContext) CacheGet(ctx context.Context, key string) (string, erro
 	return string(resp.Value), nil
 }
 
+// CacheGetBatchEntry represents a single key result from CacheGetBatch.
+type CacheGetBatchEntry struct {
+	Key   string
+	Value string
+	Found bool
+}
+
+// CacheGetBatch retrieves multiple values from the engine's Valkey cache in a
+// single round-trip. Returns one entry per key in the same order as the input.
+func (ec *EngineContext) CacheGetBatch(ctx context.Context, keys []string) ([]CacheGetBatchEntry, error) {
+	resp, err := ec.client.CacheGetBatch(ctx, &pluginv1.CacheGetBatchRequest{Keys: keys})
+	if err != nil {
+		return nil, fmt.Errorf("cache get batch: %w", err)
+	}
+	entries := make([]CacheGetBatchEntry, len(resp.Entries))
+	for i, e := range resp.Entries {
+		entries[i] = CacheGetBatchEntry{
+			Key:   e.Key,
+			Value: string(e.Value),
+			Found: e.Found,
+		}
+	}
+	return entries, nil
+}
+
 // CacheSet stores a value in the engine's Valkey cache.
 func (ec *EngineContext) CacheSet(ctx context.Context, key, value string, ttl time.Duration) error {
 	_, err := ec.client.CacheSet(ctx, &pluginv1.CacheSetRequest{

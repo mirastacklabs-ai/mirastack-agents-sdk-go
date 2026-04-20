@@ -15,6 +15,7 @@ import (
 type EngineServiceServer interface {
 	GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error)
 	CacheGet(context.Context, *CacheGetRequest) (*CacheGetResponse, error)
+	CacheGetBatch(context.Context, *CacheGetBatchRequest) (*CacheGetBatchResponse, error)
 	CacheSet(context.Context, *CacheSetRequest) (*CacheSetResponse, error)
 	PublishResult(context.Context, *PublishResultRequest) (*PublishResultResponse, error)
 	RequestApproval(context.Context, *RequestApprovalRequest) (*RequestApprovalResponse, error)
@@ -33,6 +34,9 @@ func (UnimplementedEngineServiceServer) GetConfig(context.Context, *GetConfigReq
 }
 func (UnimplementedEngineServiceServer) CacheGet(context.Context, *CacheGetRequest) (*CacheGetResponse, error) {
 	return nil, fmt.Errorf("CacheGet not implemented")
+}
+func (UnimplementedEngineServiceServer) CacheGetBatch(context.Context, *CacheGetBatchRequest) (*CacheGetBatchResponse, error) {
+	return nil, fmt.Errorf("CacheGetBatch not implemented")
 }
 func (UnimplementedEngineServiceServer) CacheSet(context.Context, *CacheSetRequest) (*CacheSetResponse, error) {
 	return nil, fmt.Errorf("CacheSet not implemented")
@@ -66,6 +70,7 @@ var EngineService_ServiceDesc = grpc.ServiceDesc{
 	Methods: []grpc.MethodDesc{
 		{MethodName: "GetConfig", Handler: _EngineService_GetConfig_Handler},
 		{MethodName: "CacheGet", Handler: _EngineService_CacheGet_Handler},
+		{MethodName: "CacheGetBatch", Handler: _EngineService_CacheGetBatch_Handler},
 		{MethodName: "CacheSet", Handler: _EngineService_CacheSet_Handler},
 		{MethodName: "PublishResult", Handler: _EngineService_PublishResult_Handler},
 		{MethodName: "RequestApproval", Handler: _EngineService_RequestApproval_Handler},
@@ -99,6 +104,14 @@ func _EngineService_CacheGet_Handler(srv interface{}, ctx context.Context, dec f
 		return nil, err
 	}
 	return srv.(EngineServiceServer).CacheGet(ctx, req)
+}
+
+func _EngineService_CacheGetBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
+	req := new(CacheGetBatchRequest)
+	if err := dec(req); err != nil {
+		return nil, err
+	}
+	return srv.(EngineServiceServer).CacheGetBatch(ctx, req)
 }
 
 func _EngineService_CacheSet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -173,6 +186,7 @@ func _EngineService_Heartbeat_Handler(srv interface{}, ctx context.Context, dec 
 type EngineServiceClient interface {
 	GetConfig(ctx context.Context, req *GetConfigRequest) (*GetConfigResponse, error)
 	CacheGet(ctx context.Context, req *CacheGetRequest) (*CacheGetResponse, error)
+	CacheGetBatch(ctx context.Context, req *CacheGetBatchRequest) (*CacheGetBatchResponse, error)
 	CacheSet(ctx context.Context, req *CacheSetRequest) (*CacheSetResponse, error)
 	PublishResult(ctx context.Context, req *PublishResultRequest) (*PublishResultResponse, error)
 	RequestApproval(ctx context.Context, req *RequestApprovalRequest) (*RequestApprovalResponse, error)
@@ -204,6 +218,15 @@ func (c *engineServiceClient) GetConfig(ctx context.Context, req *GetConfigReque
 func (c *engineServiceClient) CacheGet(ctx context.Context, req *CacheGetRequest) (*CacheGetResponse, error) {
 	out := new(CacheGetResponse)
 	err := c.cc.Invoke(ctx, "/mirastack.plugin.v1.EngineService/CacheGet", req, out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *engineServiceClient) CacheGetBatch(ctx context.Context, req *CacheGetBatchRequest) (*CacheGetBatchResponse, error) {
+	out := new(CacheGetBatchResponse)
+	err := c.cc.Invoke(ctx, "/mirastack.plugin.v1.EngineService/CacheGetBatch", req, out)
 	if err != nil {
 		return nil, err
 	}
