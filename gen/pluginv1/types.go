@@ -313,6 +313,14 @@ type RegisterPluginResponse struct {
 	Success  bool   `json:"success"`
 	PluginID string `json:"plugin_id"` // Stable PluginID assigned by the engine
 	Error    string `json:"error"`
+	// License is the engine's licensing snapshot at registration time.
+	// SDK consumers MUST treat License.Active=false as a directive to
+	// abort the registration loop — the engine has already refused the
+	// plugin via PermissionDenied/FailedPrecondition; this field is a
+	// human-readable hint for diagnostics. When the engine is licensed
+	// with an unlimited tier (ULTRA), the embedded quotas may report
+	// negative values which mean "unlimited".
+	License *LicenseContext `json:"license,omitempty"`
 }
 
 // DeregisterPluginRequest is sent by a plugin during graceful shutdown
@@ -339,4 +347,53 @@ type HeartbeatResponse struct {
 	Acknowledged             bool  `json:"acknowledged"`
 	ReRegisterRequired       bool  `json:"re_register_required"`
 	HeartbeatIntervalSeconds int32 `json:"heartbeat_interval_seconds,omitempty"`
+	// License piggybacks on heartbeat so SDK consumers can react to
+	// expiry / tier changes without polling a separate endpoint. When
+	// License.Active flips to false (e.g. license expired between
+	// heartbeats), the SDK SHOULD stop accepting new ExecuteRequests.
+	// Optional: nil when the engine cannot resolve the active license
+	// (boot race) — SDK consumers should keep using the last known
+	// snapshot from RegisterPluginResponse.
+	License *LicenseContext `json:"license,omitempty"`
+}
+
+// LicenseContext is the engine's licensing snapshot served to plugins
+// on registration handshake (RegisterPluginResponse) and on every
+// Heartbeat. SDKs use this to short-circuit work the engine would
+// reject anyway and to surface the active tier in diagnostic logs.
+//
+// Field semantics:
+//
+//   - Active: true iff the engine considers the license currently
+//     enforceable (signed, not revoked, not past expiry).
+//   - EffectiveTier: the tier the engine is currently honouring. During
+//     the post-expiry grace period this degrades to "neo" while the
+//     payload still carries the originally-issued tier.
+//   - GraceMode: true when the license has expired and the engine is
+//     serving from grace; the SDK should warn at startup.
+//   - Quotas: distilled hard caps the SDK may use to choose between
+//     paths (e.g. skip a feature a "neo" install cannot run). -1 in
+//     a quota means unlimited.
+type LicenseContext struct {
+	Active        bool          `json:"active"`
+	EffectiveTier string        `json:"effective_tier"`
+	IssuedTier    string        `json:"issued_tier,omitempty"`
+	GraceMode     bool          `json:"grace_mode,omitempty"`
+	ExpiresAt     int64         `json:"expires_at,omitempty"` // epoch ms
+	OrgID         string        `json:"org_id,omitempty"`
+	SiteID        string        `json:"site_id,omitempty"`
+	Region        string        `json:"region,omitempty"`
+	RegionKind    string        `json:"region_kind,omitempty"`
+	Quotas        LicenseQuotas `json:"quotas"`
+}
+
+// LicenseQuotas mirrors the engine's enforced caps. -1 means unlimited.
+//
+// AI Box counts are deliberately omitted: per AGENTS.md rule 14, those
+// are marketing labels and never enforced at runtime. The fields here
+// are limited to caps the engine actively meters.
+type LicenseQuotas struct {
+	MaxTenants               int `json:"max_tenants"`
+	MaxDataSourceTypes       int `json:"max_data_source_types"`
+	MaxAgenticSessionsPerDay int `json:"max_agentic_sessions_per_day,omitempty"`
 }
