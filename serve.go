@@ -3,6 +3,7 @@ package mirastack
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -48,6 +49,15 @@ func Serve(plugin Plugin) {
 		logger.Fatal("plugin validation failed", zap.Error(err))
 	}
 
+	// Resolve the mandatory tenant identifier for this plugin process.
+	// MIRASTACK_PLUGIN_TENANT_ID must be set to the UUID5 of the tenant.
+	// MIRASTACK_PLUGIN_TENANT_SLUG may be provided instead; the SDK derives
+	// the UUID5 deterministically so operators need not compute it manually.
+	tenantID, err := resolveTenantID()
+	if err != nil {
+		logger.Fatal("tenant ID resolution failed", zap.Error(err))
+	}
+
 	// Generate a unique instance ID for this process. Every plugin instance
 	// gets its own UUID so the engine can distinguish horizontally-scaled
 	// replicas and scope Valkey health keys per instance.
@@ -74,7 +84,7 @@ func Serve(plugin Plugin) {
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 			MinTime:             20 * time.Second, // allow client pings every 20s
-			PermitWithoutStream: true,              // allow pings with no active RPCs
+			PermitWithoutStream: true,             // allow pings with no active RPCs
 		}),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			Time:    30 * time.Second, // server-side keepalive ping interval
@@ -90,7 +100,7 @@ func Serve(plugin Plugin) {
 	engineAddr := os.Getenv("MIRASTACK_ENGINE_ADDR")
 	var engineCtx *EngineContext
 	if engineAddr != "" {
-		ec, err := NewEngineContext(engineAddr, info.Name, instanceID)
+		ec, err := NewEngineContext(engineAddr, info.Name, instanceID, tenantID)
 		if err != nil {
 			logger.Warn("failed to connect to engine, callbacks unavailable", zap.Error(err))
 		} else {
@@ -114,6 +124,7 @@ func Serve(plugin Plugin) {
 		zap.String("name", info.Name),
 		zap.String("version", info.Version),
 		zap.String("instance_id", instanceID),
+		zap.String("tenant_id", tenantID),
 		zap.String("addr", lis.Addr().String()),
 	)
 
@@ -288,6 +299,7 @@ func (a *pluginServiceAdapter) Execute(ctx context.Context, req *pluginv1.Execut
 		ActionID:    req.ActionId,
 		Params:      params,
 		Mode:        ExecutionMode(req.ExecutionMode),
+		TenantID:    req.TenantId,
 	}
 
 	// Map proto TimeRange to SDK TimeRange
@@ -550,4 +562,23 @@ func maintainRegistration(logger *zap.Logger, ec *EngineContext, advertiseAddr s
 			consecutiveFailures = 0
 		}
 	}
+}
+
+// resolveTenantID returns the tenant UUID5 this plugin process is bound to.
+//
+// Resolution order:
+//  1. MIRASTACK_PLUGIN_TENANT_ID — used as-is if set.
+//  2. MIRASTACK_PLUGIN_TENANT_SLUG — UUID5 is derived deterministically via
+//     IDFromSlug so operators need not pre-compute the identifier.
+//
+// Returns an error when neither variable is set; the caller (Serve) treats
+// this as a fatal startup failure.
+func resolveTenantID() (string, error) {
+	if id := os.Getenv("MIRASTACK_PLUGIN_TENANT_ID"); id != "" {
+		return id, nil
+	}
+	if slug := os.Getenv("MIRASTACK_PLUGIN_TENANT_SLUG"); slug != "" {
+		return IDFromSlug(slug), nil
+	}
+	return "", errors.New("MIRASTACK_PLUGIN_TENANT_ID is required — set it to the UUID5 of the tenant this plugin serves, or set MIRASTACK_PLUGIN_TENANT_SLUG to derive it")
 }

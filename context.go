@@ -27,6 +27,7 @@ type EngineContext struct {
 	engineAddr string
 	pluginName string
 	instanceID string
+	tenantID   string // UUID5 of the tenant this plugin instance serves
 	conn       *grpc.ClientConn
 	client     pluginv1.EngineServiceClient
 
@@ -48,8 +49,14 @@ func (ec *EngineContext) PluginName() string {
 	return ec.pluginName
 }
 
+// TenantID returns the UUID5 tenant identifier this plugin instance serves.
+// This is the value from MIRASTACK_PLUGIN_TENANT_ID, resolved at startup.
+func (ec *EngineContext) TenantID() string {
+	return ec.tenantID
+}
+
 // NewEngineContext creates a new EngineContext that connects back to the engine.
-func NewEngineContext(engineAddr, pluginName, instanceID string) (*EngineContext, error) {
+func NewEngineContext(engineAddr, pluginName, instanceID, tenantID string) (*EngineContext, error) {
 	if engineAddr == "" {
 		return nil, fmt.Errorf("engine address is required")
 	}
@@ -86,6 +93,7 @@ func NewEngineContext(engineAddr, pluginName, instanceID string) (*EngineContext
 		engineAddr: engineAddr,
 		pluginName: pluginName,
 		instanceID: instanceID,
+		tenantID:   tenantID,
 		conn:       conn,
 		client:     pluginv1.NewEngineServiceClient(conn),
 		configTTL:  cacheTTL,
@@ -109,7 +117,7 @@ func (ec *EngineContext) GetConfig(ctx context.Context) (map[string]string, erro
 	ec.configMu.RUnlock()
 
 	// Cache miss — call engine
-	resp, err := ec.client.GetConfig(ctx, &pluginv1.GetConfigRequest{PluginName: ec.pluginName})
+	resp, err := ec.client.GetConfig(ctx, &pluginv1.GetConfigRequest{PluginName: ec.pluginName, TenantId: ec.tenantID})
 	if err != nil {
 		return nil, fmt.Errorf("get config: %w", err)
 	}
@@ -134,7 +142,7 @@ func (ec *EngineContext) GetConfig(ctx context.Context) (map[string]string, erro
 
 // CacheGet retrieves a value from the engine's Valkey cache.
 func (ec *EngineContext) CacheGet(ctx context.Context, key string) (string, error) {
-	resp, err := ec.client.CacheGet(ctx, &pluginv1.CacheGetRequest{Key: key})
+	resp, err := ec.client.CacheGet(ctx, &pluginv1.CacheGetRequest{Key: key, TenantId: ec.tenantID})
 	if err != nil {
 		return "", fmt.Errorf("cache get: %w", err)
 	}
@@ -154,7 +162,7 @@ type CacheGetBatchEntry struct {
 // CacheGetBatch retrieves multiple values from the engine's Valkey cache in a
 // single round-trip. Returns one entry per key in the same order as the input.
 func (ec *EngineContext) CacheGetBatch(ctx context.Context, keys []string) ([]CacheGetBatchEntry, error) {
-	resp, err := ec.client.CacheGetBatch(ctx, &pluginv1.CacheGetBatchRequest{Keys: keys})
+	resp, err := ec.client.CacheGetBatch(ctx, &pluginv1.CacheGetBatchRequest{Keys: keys, TenantId: ec.tenantID})
 	if err != nil {
 		return nil, fmt.Errorf("cache get batch: %w", err)
 	}
@@ -175,6 +183,7 @@ func (ec *EngineContext) CacheSet(ctx context.Context, key, value string, ttl ti
 		Key:        key,
 		Value:      []byte(value),
 		TtlSeconds: int64(ttl.Seconds()),
+		TenantId:   ec.tenantID,
 	})
 	if err != nil {
 		return fmt.Errorf("cache set: %w", err)
@@ -192,6 +201,7 @@ func (ec *EngineContext) PublishResult(ctx context.Context, executionID string, 
 		ExecutionId: executionID,
 		ResultJson:  resultJSON,
 		Success:     true,
+		TenantId:    ec.tenantID,
 	})
 	if err != nil {
 		return fmt.Errorf("publish result: %w", err)
@@ -204,6 +214,7 @@ func (ec *EngineContext) RequestApproval(ctx context.Context, executionID, reaso
 	resp, err := ec.client.RequestApproval(ctx, &pluginv1.RequestApprovalRequest{
 		ExecutionId: executionID,
 		Description: reason,
+		TenantId:    ec.tenantID,
 	})
 	if err != nil {
 		return false, fmt.Errorf("request approval: %w", err)
@@ -222,6 +233,7 @@ func (ec *EngineContext) LogEvent(ctx context.Context, level, message string, fi
 		EventType:  message,
 		DataJson:   dataJSON,
 		Severity:   level,
+		TenantId:   ec.tenantID,
 	})
 	if err != nil {
 		return fmt.Errorf("log event: %w", err)
@@ -248,6 +260,7 @@ func (ec *EngineContext) CallPluginWithTimeRange(ctx context.Context, targetPlug
 	resp, err := ec.client.CallPlugin(ctx, &pluginv1.CallPluginRequest{
 		CallerPlugin: ec.pluginName,
 		TargetPlugin: targetPlugin,
+		TenantId:     ec.tenantID,
 		ParamsJson:   paramsJSON,
 		TimeRange:    timeRange,
 	})
@@ -284,6 +297,7 @@ func (ec *EngineContext) RegisterSelf(ctx context.Context, grpcAddr string, plug
 		GRPCAddr:   grpcAddr,
 		PluginType: pluginType,
 		InstanceID: ec.instanceID,
+		TenantId:   ec.tenantID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("register plugin: %w", err)

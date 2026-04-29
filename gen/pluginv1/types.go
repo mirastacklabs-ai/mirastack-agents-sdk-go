@@ -21,32 +21,32 @@ type DevOpsStage int32
 
 const (
 	DevOpsStageUnspecified DevOpsStage = 0
-	DevOpsStagePlan       DevOpsStage = 1
-	DevOpsStageCode       DevOpsStage = 2
-	DevOpsStageBuild      DevOpsStage = 3
-	DevOpsStageTest       DevOpsStage = 4
-	DevOpsStageRelease    DevOpsStage = 5
-	DevOpsStageDeploy     DevOpsStage = 6
-	DevOpsStageOperate    DevOpsStage = 7
-	DevOpsStageObserve    DevOpsStage = 8
+	DevOpsStagePlan        DevOpsStage = 1
+	DevOpsStageCode        DevOpsStage = 2
+	DevOpsStageBuild       DevOpsStage = 3
+	DevOpsStageTest        DevOpsStage = 4
+	DevOpsStageRelease     DevOpsStage = 5
+	DevOpsStageDeploy      DevOpsStage = 6
+	DevOpsStageOperate     DevOpsStage = 7
+	DevOpsStageObserve     DevOpsStage = 8
 )
 
 type ExecutionMode int32
 
 const (
 	ExecutionModeUnspecified ExecutionMode = 0
-	ExecutionModeManual     ExecutionMode = 1
-	ExecutionModeGuided     ExecutionMode = 2
-	ExecutionModeAutonomous ExecutionMode = 3
+	ExecutionModeManual      ExecutionMode = 1
+	ExecutionModeGuided      ExecutionMode = 2
+	ExecutionModeAutonomous  ExecutionMode = 3
 )
 
 type PluginType int32
 
 const (
 	PluginTypeUnspecified PluginType = 0
-	PluginTypeAgent      PluginType = 1
-	PluginTypeProvider   PluginType = 2
-	PluginTypeConnector  PluginType = 3
+	PluginTypeAgent       PluginType = 1
+	PluginTypeProvider    PluginType = 2
+	PluginTypeConnector   PluginType = 3
 )
 
 // ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ type ActionDef struct {
 // ConfigParamSchema describes a configuration parameter declared by a plugin.
 type ConfigParamSchema struct {
 	Key         string `json:"key"`
-	Type        string `json:"type"`        // "string", "int", "bool", "duration", "json"
+	Type        string `json:"type"` // "string", "int", "bool", "duration", "json"
 	Required    bool   `json:"required"`
 	Default     string `json:"default"`
 	Description string `json:"description"`
@@ -85,18 +85,18 @@ type ConfigParamSchema struct {
 }
 
 type InfoResponse struct {
-	Name             string              `json:"name"`
-	Version          string              `json:"version"`
-	Description      string              `json:"description"`
-	Type             PluginType          `json:"type"`
-	Permission       Permission          `json:"permission"`
-	DevopsStages     []DevOpsStage       `json:"devops_stages"`
-	DefaultIntents   []IntentPattern     `json:"default_intents"`
-	Actions          []ActionDef         `json:"actions,omitempty"`
-	PromptTemplates  []PromptTemplateDef `json:"prompt_templates,omitempty"`
-	ConfigSchema     []ConfigParamSchema `json:"config_schema,omitempty"`
-	Metadata         map[string]string   `json:"metadata"`
-	InstanceID       string              `json:"instance_id"`
+	Name            string              `json:"name"`
+	Version         string              `json:"version"`
+	Description     string              `json:"description"`
+	Type            PluginType          `json:"type"`
+	Permission      Permission          `json:"permission"`
+	DevopsStages    []DevOpsStage       `json:"devops_stages"`
+	DefaultIntents  []IntentPattern     `json:"default_intents"`
+	Actions         []ActionDef         `json:"actions,omitempty"`
+	PromptTemplates []PromptTemplateDef `json:"prompt_templates,omitempty"`
+	ConfigSchema    []ConfigParamSchema `json:"config_schema,omitempty"`
+	Metadata        map[string]string   `json:"metadata"`
+	InstanceID      string              `json:"instance_id"`
 }
 
 // PromptTemplateDef describes a prompt template contributed by a plugin.
@@ -131,6 +131,10 @@ type ExecuteRequest struct {
 	ExecutionMode ExecutionMode     `json:"execution_mode"`
 	Context       map[string]string `json:"context"`
 	TimeRange     *TimeRange        `json:"time_range,omitempty"`
+	// TenantId is the UUID5 tenant identifier resolved by the engine from the
+	// calling Identity. Mandatory — plugins must treat this as authoritative
+	// and never derive tenant from params or context.
+	TenantId string `json:"tenant_id"`
 }
 
 type ExecuteResponse struct {
@@ -164,6 +168,9 @@ type ConfigUpdatedResponse struct {
 
 type GetConfigRequest struct {
 	PluginName string `json:"plugin_name"`
+	// TenantId is auto-stamped by the SDK; engine validates against the
+	// registered plugin handle and refuses cross-tenant requests.
+	TenantId string `json:"tenant_id"`
 }
 
 type GetConfigResponse struct {
@@ -173,6 +180,9 @@ type GetConfigResponse struct {
 
 type CacheGetRequest struct {
 	Key string `json:"key"`
+	// TenantId is auto-stamped by the SDK; engine namespaces the key under
+	// the tenant scope and rejects cross-tenant access.
+	TenantId string `json:"tenant_id"`
 }
 
 type CacheGetResponse struct {
@@ -182,6 +192,9 @@ type CacheGetResponse struct {
 
 type CacheGetBatchRequest struct {
 	Keys []string `json:"keys"`
+	// TenantId is auto-stamped by the SDK; all keys are namespaced under the
+	// tenant scope.
+	TenantId string `json:"tenant_id"`
 }
 
 type CacheGetBatchResponse struct {
@@ -198,6 +211,9 @@ type CacheSetRequest struct {
 	Key        string `json:"key"`
 	Value      []byte `json:"value"`
 	TtlSeconds int64  `json:"ttl_seconds"`
+	// TenantId is auto-stamped by the SDK; engine namespaces the key under
+	// the tenant scope and rejects cross-tenant writes.
+	TenantId string `json:"tenant_id"`
 }
 
 type CacheSetResponse struct {
@@ -210,6 +226,9 @@ type PublishResultRequest struct {
 	ResultJson  []byte `json:"result_json"`
 	Success     bool   `json:"success"`
 	Error       string `json:"error"`
+	// TenantId is auto-stamped by the SDK; engine validates against the
+	// execution's tenant scope.
+	TenantId string `json:"tenant_id"`
 }
 
 type PublishResultResponse struct {
@@ -223,6 +242,9 @@ type RequestApprovalRequest struct {
 	RequiredPermission Permission `json:"required_permission"`
 	ContextJson        []byte     `json:"context_json"`
 	TimeoutSeconds     int32      `json:"timeout_seconds"`
+	// TenantId is auto-stamped by the SDK; engine refuses approvals from
+	// suspended/deleted tenants.
+	TenantId string `json:"tenant_id"`
 }
 
 type RequestApprovalResponse struct {
@@ -237,6 +259,9 @@ type LogEventRequest struct {
 	EventType  string `json:"event_type"`
 	DataJson   []byte `json:"data_json"`
 	Severity   string `json:"severity"`
+	// TenantId is auto-stamped by the SDK; audit events are persisted under
+	// /mirastack/{tenant_id}/audit/{event_id}.
+	TenantId string `json:"tenant_id"`
 }
 
 type LogEventResponse struct {
@@ -250,6 +275,11 @@ type CallPluginRequest struct {
 	ParamsJson     []byte     `json:"params_json"`
 	TimeoutSeconds int32      `json:"timeout_seconds"`
 	TimeRange      *TimeRange `json:"time_range,omitempty"`
+	// TenantId is the UUID5 of the calling plugin's tenant. The engine
+	// refuses any CallPlugin where target_plugin is not registered for the
+	// same tenant_id (PERMISSION_DENIED). Plugins must NOT set this from
+	// user input — the SDK auto-stamps it from MIRASTACK_PLUGIN_TENANT_ID.
+	TenantId string `json:"tenant_id"`
 }
 
 type CallPluginResponse struct {
@@ -269,9 +299,14 @@ type CallPluginResponse struct {
 type RegisterPluginRequest struct {
 	Name       string     `json:"name"`
 	Version    string     `json:"version"`
-	GRPCAddr   string     `json:"grpc_addr"`    // Externally reachable gRPC address (e.g., "plugin-host:50051")
+	GRPCAddr   string     `json:"grpc_addr"` // Externally reachable gRPC address (e.g., "plugin-host:50051")
 	PluginType PluginType `json:"plugin_type"`
 	InstanceID string     `json:"instance_id"`
+	// TenantId is the UUID5 of the tenant this plugin process serves.
+	// Mandatory: empty value is rejected (INVALID_ARGUMENT). The engine
+	// validates the tenant exists and is active and stores the registration
+	// under /mirastack/{tenant_id}/plugins/{name}.
+	TenantId string `json:"tenant_id"`
 }
 
 type RegisterPluginResponse struct {

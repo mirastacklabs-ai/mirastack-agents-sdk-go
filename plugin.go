@@ -103,6 +103,12 @@ type ExecuteRequest struct {
 	Params      map[string]string
 	Mode        ExecutionMode
 	TimeRange   *TimeRange
+	// TenantID is the UUID5 tenant identifier resolved by the engine from the
+	// calling Identity. It is mandatory and populated automatically by the SDK
+	// from the proto field. Plugins must treat this as authoritative and must
+	// never derive tenant from Params or context. Never persist data, construct
+	// Valkey keys, or make cross-tenant calls without this value.
+	TenantID string
 }
 
 // ExecuteResponse is what a plugin returns after execution.
@@ -132,7 +138,7 @@ type PromptTemplate struct {
 type Permission int
 
 const (
-	PermissionRead   Permission = iota
+	PermissionRead Permission = iota
 	PermissionModify
 	PermissionAdmin
 )

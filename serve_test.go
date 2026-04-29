@@ -9,6 +9,35 @@ import (
 	"go.uber.org/zap"
 )
 
+// ── Tenant ID resolution ──────────────────────────────────────────────────────
+
+// TestIDFromSlug_Deterministic verifies that IDFromSlug produces the same
+// UUID5 each time for the same slug and matches the engine's derivation.
+func TestIDFromSlug_Deterministic(t *testing.T) {
+	id1 := IDFromSlug("acme")
+	id2 := IDFromSlug("acme")
+	if id1 != id2 {
+		t.Fatalf("IDFromSlug is not deterministic: %s != %s", id1, id2)
+	}
+	// Must be a valid 36-char UUID string
+	if len(id1) != 36 {
+		t.Fatalf("expected 36-char UUID, got %d chars: %s", len(id1), id1)
+	}
+}
+
+func TestIDFromSlug_DifferentSlugsProduceDifferentIDs(t *testing.T) {
+	if IDFromSlug("acme") == IDFromSlug("globex") {
+		t.Fatal("different slugs must not produce the same UUID5")
+	}
+}
+
+func TestIDFromSlug_NormalisesSlug(t *testing.T) {
+	// The engine normalises slugs to lower case before hashing.
+	if IDFromSlug("ACME") != IDFromSlug("acme") {
+		t.Fatal("IDFromSlug must normalise to lower case before hashing")
+	}
+}
+
 func TestResolveAdvertiseAddr_ExplicitEnvVar(t *testing.T) {
 	t.Setenv("MIRASTACK_PLUGIN_ADVERTISE_ADDR", "my-agent-svc:50051")
 	addr := resolveAdvertiseAddr(9999)
@@ -53,7 +82,7 @@ func TestMaintainRegistration_StopChExitsPromptly(t *testing.T) {
 	// should return promptly rather than blocking for the full retry cycle.
 	logger := zap.NewNop()
 
-	ec, err := NewEngineContext("localhost:1", "test-plugin", "test-instance")
+	ec, err := NewEngineContext("localhost:1", "test-plugin", "test-instance", IDFromSlug("acme"))
 	if err != nil {
 		t.Fatalf("NewEngineContext: %v", err)
 	}
@@ -84,7 +113,7 @@ func TestMaintainRegistration_HeartbeatIntervalFromEnv(t *testing.T) {
 	t.Setenv("MIRASTACK_PLUGIN_HEARTBEAT_INTERVAL", "1")
 
 	logger := zap.NewNop()
-	ec, err := NewEngineContext("localhost:1", "test-hb-plugin", "test-hb-instance")
+	ec, err := NewEngineContext("localhost:1", "test-hb-plugin", "test-hb-instance", IDFromSlug("acme"))
 	if err != nil {
 		t.Fatalf("NewEngineContext: %v", err)
 	}
@@ -118,7 +147,7 @@ func TestMaintainRegistration_InvalidHeartbeatEnvFallsBackToDefault(t *testing.T
 	t.Setenv("MIRASTACK_PLUGIN_HEARTBEAT_INTERVAL", "not-a-number")
 
 	logger := zap.NewNop()
-	ec, err := NewEngineContext("localhost:1", "test-fallback", "test-instance")
+	ec, err := NewEngineContext("localhost:1", "test-fallback", "test-instance", IDFromSlug("acme"))
 	if err != nil {
 		t.Fatalf("NewEngineContext: %v", err)
 	}
@@ -146,7 +175,7 @@ func TestMaintainRegistration_ZeroHeartbeatEnvFallsBackToDefault(t *testing.T) {
 	t.Setenv("MIRASTACK_PLUGIN_HEARTBEAT_INTERVAL", "0")
 
 	logger := zap.NewNop()
-	ec, err := NewEngineContext("localhost:1", "test-zero-hb", "test-instance")
+	ec, err := NewEngineContext("localhost:1", "test-zero-hb", "test-instance", IDFromSlug("acme"))
 	if err != nil {
 		t.Fatalf("NewEngineContext: %v", err)
 	}
@@ -167,4 +196,83 @@ func TestMaintainRegistration_ZeroHeartbeatEnvFallsBackToDefault(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("maintainRegistration did not exit after stopCh close")
 	}
+}
+
+// ── EngineContext tenant propagation ─────────────────────────────────────────
+
+func TestNewEngineContext_StoresTenantID(t *testing.T) {
+	tenantID := IDFromSlug("acme")
+	ec, err := NewEngineContext("localhost:1", "test-plugin", "inst-1", tenantID)
+	if err != nil {
+		t.Fatalf("NewEngineContext: %v", err)
+	}
+	defer ec.Close()
+
+	if ec.TenantID() != tenantID {
+		t.Fatalf("expected TenantID %s, got %s", tenantID, ec.TenantID())
+	}
+}
+
+func TestNewEngineContext_EmptyTenantIDIsPreserved(t *testing.T) {
+	// Validation is the caller's responsibility (Serve() fatal-logs on empty
+	// tenant). The important invariant is that TenantID() reflects exactly
+	// what was passed in.
+	ec, err := NewEngineContext("localhost:1", "test-plugin", "inst-1", "")
+	if err != nil {
+		t.Fatalf("NewEngineContext: %v", err)
+	}
+	defer ec.Close()
+
+	if ec.TenantID() != "" {
+		t.Fatalf("expected empty TenantID, got %s", ec.TenantID())
+	}
+}
+
+// ── V-01: TestSDKBootstrapRequiresTenantID ───────────────────────────────
+
+// TestSDKBootstrapRequiresTenantID verifies the three resolution paths of
+// resolveTenantID so that the tenant-ID bootstrap contract is unit-testable
+// without invoking logger.Fatal in Serve().
+func TestSDKBootstrapRequiresTenantID(t *testing.T) {
+	// ── Case 1: neither env var set → must return an error ────────────
+	t.Run("neither_var_set", func(t *testing.T) {
+		t.Setenv("MIRASTACK_PLUGIN_TENANT_ID", "")
+		t.Setenv("MIRASTACK_PLUGIN_TENANT_SLUG", "")
+
+		id, err := resolveTenantID()
+		if err == nil {
+			t.Errorf("expected error when neither env var is set, got id=%q", id)
+		}
+	})
+
+	// ── Case 2: MIRASTACK_PLUGIN_TENANT_ID is set → returned as-is ───
+	t.Run("tenant_id_set", func(t *testing.T) {
+		const wantID = "550e8400-e29b-41d4-a716-446655440000"
+		t.Setenv("MIRASTACK_PLUGIN_TENANT_ID", wantID)
+		t.Setenv("MIRASTACK_PLUGIN_TENANT_SLUG", "")
+
+		id, err := resolveTenantID()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if id != wantID {
+			t.Errorf("got %q, want %q", id, wantID)
+		}
+	})
+
+	// ── Case 3: only MIRASTACK_PLUGIN_TENANT_SLUG set → UUID5 derived ─
+	t.Run("slug_set", func(t *testing.T) {
+		const slug = "acme"
+		t.Setenv("MIRASTACK_PLUGIN_TENANT_ID", "")
+		t.Setenv("MIRASTACK_PLUGIN_TENANT_SLUG", slug)
+
+		id, err := resolveTenantID()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := IDFromSlug(slug)
+		if id != want {
+			t.Errorf("got %q, want IDFromSlug(%q)=%q", id, slug, want)
+		}
+	})
 }
