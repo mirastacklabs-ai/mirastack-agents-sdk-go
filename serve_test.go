@@ -7,6 +7,8 @@ import (
 
 	pluginv1 "github.com/mirastacklabs-ai/mirastack-agents-sdk-go/gen/pluginv1"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ── Tenant ID resolution ──────────────────────────────────────────────────────
@@ -275,4 +277,53 @@ func TestSDKBootstrapRequiresTenantID(t *testing.T) {
 			t.Errorf("got %q, want IDFromSlug(%q)=%q", id, slug, want)
 		}
 	})
+}
+
+func TestClassifyRegistrationError(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantReason string
+		wantCode   string
+	}{
+		{
+			name:       "engine_unavailable",
+			err:        status.Error(codes.Unavailable, "connection refused"),
+			wantReason: "engine_unavailable",
+			wantCode:   codes.Unavailable.String(),
+		},
+		{
+			name:       "tenant_not_active_or_missing",
+			err:        status.Error(codes.PermissionDenied, "tenant \"abc\" is not active: tenants: tenant not found"),
+			wantReason: "tenant_not_active_or_missing",
+			wantCode:   codes.PermissionDenied.String(),
+		},
+		{
+			name:       "invalid_registration_request",
+			err:        status.Error(codes.InvalidArgument, "tenant_id is required for plugin registration"),
+			wantReason: "invalid_registration_request",
+			wantCode:   codes.InvalidArgument.String(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fields := classifyRegistrationError(tt.err)
+			if got := zapFieldString(fields, "reason"); got != tt.wantReason {
+				t.Fatalf("reason = %q, want %q", got, tt.wantReason)
+			}
+			if got := zapFieldString(fields, "grpc_code"); got != tt.wantCode {
+				t.Fatalf("grpc_code = %q, want %q", got, tt.wantCode)
+			}
+		})
+	}
+}
+
+func zapFieldString(fields []zap.Field, key string) string {
+	for _, field := range fields {
+		if field.Key == key {
+			return field.String
+		}
+	}
+	return ""
 }

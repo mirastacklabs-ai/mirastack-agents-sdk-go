@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,8 +22,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	grpcCodes "google.golang.org/grpc/codes"
 	"google.golang.org/grpc/encoding"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 )
 
 func init() {
@@ -423,21 +426,17 @@ func resolveAdvertiseAddr(boundPort int) string {
 	return fmt.Sprintf("%s:%d", hostname, boundPort)
 }
 
-// maintainRegistration performs initial registration with exponential backoff,
-// then enters a persistent heartbeat loop that periodically re-registers with
-// the engine. This ensures the plugin survives engine restarts: when the engine
-// comes back, the next heartbeat re-establishes the registration.
+// maintainRegistration lazily registers this tenant-bound plugin with the engine,
+// then enters a persistent heartbeat loop. Registration is intentionally
+// unbounded: plugins may start before engine bootstrap, before the bound tenant
+// exists, or while the engine is restarting. They only move to heartbeat after
+// RegisterPlugin succeeds for their immutable tenant_id.
 //
 // The heartbeat interval defaults to 30 seconds and can be overridden via
 // MIRASTACK_PLUGIN_HEARTBEAT_INTERVAL (in seconds).
 //
 // This function blocks until stopCh is closed (shutdown signal).
 func maintainRegistration(logger *zap.Logger, ec *EngineContext, advertiseAddr string, pluginType pluginv1.PluginType, version string, stopCh <-chan struct{}) {
-	const (
-		initialMaxAttempts = 10
-		maxBackoff         = 30 * time.Second
-	)
-
 	heartbeatInterval := 30 * time.Second
 	if envSecs := os.Getenv("MIRASTACK_PLUGIN_HEARTBEAT_INTERVAL"); envSecs != "" {
 		if secs, err := strconv.Atoi(envSecs); err == nil && secs > 0 {
@@ -445,53 +444,12 @@ func maintainRegistration(logger *zap.Logger, ec *EngineContext, advertiseAddr s
 		}
 	}
 
-	// Phase 1: Initial registration with bounded retries and backoff.
-	backoff := 2 * time.Second
-	registered := false
-	for attempt := 1; attempt <= initialMaxAttempts; attempt++ {
-		regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		pluginID, err := ec.RegisterSelf(regCtx, advertiseAddr, pluginType, version)
-		regCancel()
-
-		if err == nil {
-			logger.Info("self-registered with engine",
-				zap.String("plugin_id", pluginID),
-				zap.String("advertise_addr", advertiseAddr),
-			)
-			registered = true
-			break
-		}
-
-		if attempt == initialMaxAttempts {
-			logger.Error("initial registration exhausted all retries — entering heartbeat mode, will keep trying",
-				zap.Int("attempts", initialMaxAttempts),
-				zap.Error(err),
-			)
-			break
-		}
-
-		logger.Warn("self-registration attempt failed, retrying",
-			zap.Int("attempt", attempt),
-			zap.Duration("backoff", backoff),
-			zap.Error(err),
-		)
-
-		select {
-		case <-stopCh:
-			return
-		case <-time.After(backoff):
-		}
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
-		}
+	if !registerUntilAccepted(logger, ec, advertiseAddr, pluginType, version, stopCh) {
+		return
 	}
-
-	if registered {
-		logger.Info("entering registration heartbeat loop",
-			zap.Duration("interval", heartbeatInterval),
-		)
-	}
+	logger.Info("entering registration heartbeat loop",
+		zap.Duration("interval", heartbeatInterval),
+	)
 
 	// Phase 2: Persistent heartbeat loop.
 	// Sends a lightweight Heartbeat RPC instead of full RegisterPlugin.
@@ -539,19 +497,11 @@ func maintainRegistration(logger *zap.Logger, ec *EngineContext, advertiseAddr s
 
 			if resp.ReRegisterRequired {
 				logger.Info("engine requested re-registration, performing full RegisterPlugin")
-				regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
-				pluginID, regErr := ec.RegisterSelf(regCtx, advertiseAddr, pluginType, version)
-				regCancel()
-				if regErr != nil {
-					consecutiveFailures++
-					logger.Warn("re-registration after heartbeat failed",
-						zap.Error(regErr),
-					)
-					continue
+				if !registerUntilAccepted(logger, ec, advertiseAddr, pluginType, version, stopCh) {
+					return
 				}
-				logger.Info("re-registered with engine after heartbeat",
-					zap.String("plugin_id", pluginID),
-				)
+				consecutiveFailures = 0
+				continue
 			}
 
 			if consecutiveFailures > 0 {
@@ -561,6 +511,88 @@ func maintainRegistration(logger *zap.Logger, ec *EngineContext, advertiseAddr s
 			}
 			consecutiveFailures = 0
 		}
+	}
+}
+
+// registerUntilAccepted retries RegisterPlugin until the engine accepts this
+// process for its immutable tenant binding or the process is shutting down.
+func registerUntilAccepted(logger *zap.Logger, ec *EngineContext, advertiseAddr string, pluginType pluginv1.PluginType, version string, stopCh <-chan struct{}) bool {
+	const maxBackoff = 30 * time.Second
+
+	backoff := 2 * time.Second
+	attempt := 1
+	for {
+		regCtx, regCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		pluginID, err := ec.RegisterSelf(regCtx, advertiseAddr, pluginType, version)
+		regCancel()
+		if err == nil {
+			logger.Info("self-registered with engine",
+				zap.String("plugin_id", pluginID),
+				zap.String("advertise_addr", advertiseAddr),
+				zap.String("tenant_id", ec.TenantID()),
+			)
+			return true
+		}
+
+		fields := []zap.Field{
+			zap.Int("attempt", attempt),
+			zap.Duration("backoff", backoff),
+			zap.String("tenant_id", ec.TenantID()),
+			zap.Error(err),
+		}
+		fields = append(fields, classifyRegistrationError(err)...)
+		logger.Warn("plugin registration pending; will retry", fields...)
+
+		select {
+		case <-stopCh:
+			return false
+		case <-time.After(backoff):
+		}
+		attempt++
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+func classifyRegistrationError(err error) []zap.Field {
+	code := status.Code(err)
+	message := strings.ToLower(err.Error())
+	reason := "registration_rejected"
+	needsOperatorAction := false
+
+	switch code {
+	case grpcCodes.Unavailable, grpcCodes.DeadlineExceeded:
+		reason = "engine_unavailable"
+	case grpcCodes.PermissionDenied:
+		if strings.Contains(message, "tenant") && (strings.Contains(message, "not active") || strings.Contains(message, "not found")) {
+			reason = "tenant_not_active_or_missing"
+		} else {
+			reason = "permission_denied"
+			needsOperatorAction = true
+		}
+	case grpcCodes.InvalidArgument:
+		reason = "invalid_registration_request"
+		needsOperatorAction = true
+	case grpcCodes.ResourceExhausted:
+		reason = "license_or_quota_exhausted"
+		needsOperatorAction = true
+	default:
+		switch {
+		case strings.Contains(message, "connection refused"), strings.Contains(message, "no such host"), strings.Contains(message, "transport"):
+			reason = "engine_unavailable"
+		case strings.Contains(message, "tenant") && (strings.Contains(message, "not active") || strings.Contains(message, "not found")):
+			reason = "tenant_not_active_or_missing"
+		case strings.Contains(message, "register plugin rejected"):
+			needsOperatorAction = true
+		}
+	}
+
+	return []zap.Field{
+		zap.String("reason", reason),
+		zap.Bool("needs_operator_action", needsOperatorAction),
+		zap.String("grpc_code", code.String()),
 	}
 }
 
