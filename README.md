@@ -4,6 +4,19 @@ Go SDK for building **MIRASTACK agents** — the external gRPC plugins that perf
 
 **License:** GNU AGPL v3 — see [LICENSE](LICENSE).
 
+## Release Cadence
+
+This SDK ships **lockstep with the Python SDK**
+([`mirastack-agents-sdk-python`](https://github.com/mirastacklabs-ai/mirastack-agents-sdk-python))
+at matching `MAJOR.MINOR` tags. Every minor or major bump in either SDK
+forces a paired release of the other so plugin authors writing in either
+language consume the same engine handshake contract. See
+[`CHANGELOG.md`](CHANGELOG.md) for the policy and per-version notes.
+
+All MIRASTACK agents — Go and Python — are required to track the latest
+paired SDK minor; the engine's CI gate enforces this before each engine
+release.
+
 ## Installation
 
 ```bash
