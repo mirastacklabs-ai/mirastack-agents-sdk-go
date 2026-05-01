@@ -394,6 +394,6 @@ type LicenseContext struct {
 // are limited to caps the engine actively meters.
 type LicenseQuotas struct {
 	MaxTenants               int `json:"max_tenants"`
-	MaxDataSourceTypes       int `json:"max_data_source_types"`
+	MaxIntegrationTypes       int `json:"max_integration_types"`
 	MaxAgenticSessionsPerDay int `json:"max_agentic_sessions_per_day,omitempty"`
 }
