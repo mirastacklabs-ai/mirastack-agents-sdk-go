@@ -397,3 +397,30 @@ type LicenseQuotas struct {
 	MaxIntegrationTypes       int `json:"max_integration_types"`
 	MaxAgenticSessionsPerDay int `json:"max_agentic_sessions_per_day,omitempty"`
 }
+
+// ─── ChatStream types ─────────────────────────────────────────────────────────
+//
+// ChatStreamRequest / ChatTokenResponse carry the server-streaming ChatStream
+// RPC payload. The request mirrors ExecuteRequest.ParamsJson so existing
+// param serialisation helpers in the engine and provider SDKs can be reused
+// without duplication.
+
+// ChatStreamRequest is the single inbound message for the ChatStream RPC.
+// The engine sends the LLM prompt payload as a JSON-encoded map[string]string
+// identical to the ParamsJson shape used in Execute, so provider plugins can
+// share the same deserialization path for both RPCs.
+type ChatStreamRequest struct {
+	ParamsJson []byte `json:"params_json,omitempty"`
+	TenantId   string `json:"tenant_id,omitempty"`
+}
+
+// ChatTokenResponse is one message in the ChatStream server-streaming sequence.
+// The provider emits zero or more messages with non-empty Token values followed
+// by exactly one message where IsFinal is true. Error is non-empty only when
+// the stream ends with a failure; the engine treats any non-empty Error as a
+// terminal event regardless of IsFinal.
+type ChatTokenResponse struct {
+	Token   string `json:"token,omitempty"`
+	IsFinal bool   `json:"is_final,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
