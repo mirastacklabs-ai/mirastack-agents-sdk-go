@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -23,6 +24,11 @@ import (
 const (
 	defaultAgentServiceName = "mirastack-agent"
 	tracerName              = "mirastack.plugin"
+
+	// componentKind is stamped on every span / metric resource so back-ends
+	// can route by plugin family. Agents always stamp "agent" — providers /
+	// connectors stamp their own value in their respective SDKs.
+	componentKind = "agent"
 )
 
 // otelEnabled returns true when MIRASTACK_OTEL_ENABLED is "true".
@@ -53,7 +59,12 @@ func initOTel(ctx context.Context, pluginName string, logger *zap.Logger) (shutd
 		resource.WithAttributes(
 			semconv.ServiceName(serviceName),
 			semconv.ServiceVersion(serviceVersion),
+			attribute.String("mirastack.component_kind", componentKind),
 		),
+		// WithFromEnv merges OTEL_RESOURCE_ATTRIBUTES — the engine stamps
+		// mirastack.tenant_id / region / region_kind / org_id / site_id /
+		// deployment.environment there at spawn time.
+		resource.WithFromEnv(),
 		resource.WithTelemetrySDK(),
 		resource.WithHost(),
 		resource.WithOS(),

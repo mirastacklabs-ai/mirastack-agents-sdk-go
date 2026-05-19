@@ -14,6 +14,8 @@ import (
 // EngineServiceServer is the interface the engine serves for plugin callbacks.
 type EngineServiceServer interface {
 	GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error)
+	ListKPIs(context.Context, *ListKPIsRequest) (*ListKPIsResponse, error)
+	GetKPI(context.Context, *GetKPIRequest) (*GetKPIResponse, error)
 	CacheGet(context.Context, *CacheGetRequest) (*CacheGetResponse, error)
 	CacheGetBatch(context.Context, *CacheGetBatchRequest) (*CacheGetBatchResponse, error)
 	CacheSet(context.Context, *CacheSetRequest) (*CacheSetResponse, error)
@@ -31,6 +33,12 @@ type UnimplementedEngineServiceServer struct{}
 
 func (UnimplementedEngineServiceServer) GetConfig(context.Context, *GetConfigRequest) (*GetConfigResponse, error) {
 	return nil, fmt.Errorf("GetConfig not implemented")
+}
+func (UnimplementedEngineServiceServer) ListKPIs(context.Context, *ListKPIsRequest) (*ListKPIsResponse, error) {
+	return nil, fmt.Errorf("ListKPIs not implemented")
+}
+func (UnimplementedEngineServiceServer) GetKPI(context.Context, *GetKPIRequest) (*GetKPIResponse, error) {
+	return nil, fmt.Errorf("GetKPI not implemented")
 }
 func (UnimplementedEngineServiceServer) CacheGet(context.Context, *CacheGetRequest) (*CacheGetResponse, error) {
 	return nil, fmt.Errorf("CacheGet not implemented")
@@ -69,6 +77,8 @@ var EngineService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*EngineServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{MethodName: "GetConfig", Handler: _EngineService_GetConfig_Handler},
+		{MethodName: "ListKPIs", Handler: _EngineService_ListKPIs_Handler},
+		{MethodName: "GetKPI", Handler: _EngineService_GetKPI_Handler},
 		{MethodName: "CacheGet", Handler: _EngineService_CacheGet_Handler},
 		{MethodName: "CacheGetBatch", Handler: _EngineService_CacheGetBatch_Handler},
 		{MethodName: "CacheSet", Handler: _EngineService_CacheSet_Handler},
@@ -96,6 +106,22 @@ func _EngineService_GetConfig_Handler(srv interface{}, ctx context.Context, dec 
 		return nil, err
 	}
 	return srv.(EngineServiceServer).GetConfig(ctx, req)
+}
+
+func _EngineService_ListKPIs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
+	req := new(ListKPIsRequest)
+	if err := dec(req); err != nil {
+		return nil, err
+	}
+	return srv.(EngineServiceServer).ListKPIs(ctx, req)
+}
+
+func _EngineService_GetKPI_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
+	req := new(GetKPIRequest)
+	if err := dec(req); err != nil {
+		return nil, err
+	}
+	return srv.(EngineServiceServer).GetKPI(ctx, req)
 }
 
 func _EngineService_CacheGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -185,6 +211,8 @@ func _EngineService_Heartbeat_Handler(srv interface{}, ctx context.Context, dec 
 // EngineServiceClient provides typed access to engine callbacks.
 type EngineServiceClient interface {
 	GetConfig(ctx context.Context, req *GetConfigRequest) (*GetConfigResponse, error)
+	ListKPIs(ctx context.Context, req *ListKPIsRequest) (*ListKPIsResponse, error)
+	GetKPI(ctx context.Context, req *GetKPIRequest) (*GetKPIResponse, error)
 	CacheGet(ctx context.Context, req *CacheGetRequest) (*CacheGetResponse, error)
 	CacheGetBatch(ctx context.Context, req *CacheGetBatchRequest) (*CacheGetBatchResponse, error)
 	CacheSet(ctx context.Context, req *CacheSetRequest) (*CacheSetResponse, error)
@@ -209,6 +237,24 @@ func NewEngineServiceClient(cc grpc.ClientConnInterface) EngineServiceClient {
 func (c *engineServiceClient) GetConfig(ctx context.Context, req *GetConfigRequest) (*GetConfigResponse, error) {
 	out := new(GetConfigResponse)
 	err := c.cc.Invoke(ctx, "/mirastack.plugin.v1.EngineService/GetConfig", req, out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *engineServiceClient) ListKPIs(ctx context.Context, req *ListKPIsRequest) (*ListKPIsResponse, error) {
+	out := new(ListKPIsResponse)
+	err := c.cc.Invoke(ctx, "/mirastack.plugin.v1.EngineService/ListKPIs", req, out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *engineServiceClient) GetKPI(ctx context.Context, req *GetKPIRequest) (*GetKPIResponse, error) {
+	out := new(GetKPIResponse)
+	err := c.cc.Invoke(ctx, "/mirastack.plugin.v1.EngineService/GetKPI", req, out)
 	if err != nil {
 		return nil, err
 	}

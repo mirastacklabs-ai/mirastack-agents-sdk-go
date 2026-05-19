@@ -178,6 +178,46 @@ type GetConfigResponse struct {
 	Version int64             `json:"version"`
 }
 
+type KPIView struct {
+	ID            string `json:"id"`
+	TenantID      string `json:"tenant_id"`
+	Name          string `json:"name"`
+	Query         string `json:"query"`
+	IntegrationID string `json:"integration_id"`
+	Kind          string `json:"kind"`
+	Layer         string `json:"layer"`
+	Sentiment     string `json:"sentiment"`
+	Classifier    string `json:"classifier"`
+	Definition    string `json:"definition"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
+	CreatedBy     string `json:"created_by,omitempty"`
+	UpdatedBy     string `json:"updated_by,omitempty"`
+}
+
+type ListKPIsRequest struct {
+	// TenantId is auto-stamped by the SDK; engine validates against the
+	// registered plugin handle and refuses cross-tenant requests.
+	TenantId string `json:"tenant_id"`
+	Kind     string `json:"kind,omitempty"`
+	Layer    string `json:"layer,omitempty"`
+}
+
+type ListKPIsResponse struct {
+	KPIs []KPIView `json:"kpis"`
+}
+
+type GetKPIRequest struct {
+	// TenantId is auto-stamped by the SDK; engine validates against the
+	// registered plugin handle and refuses cross-tenant requests.
+	TenantId string `json:"tenant_id"`
+	KPIID    string `json:"kpi_id"`
+}
+
+type GetKPIResponse struct {
+	KPI *KPIView `json:"kpi,omitempty"`
+}
+
 type CacheGetRequest struct {
 	Key string `json:"key"`
 	// TenantId is auto-stamped by the SDK; engine namespaces the key under
@@ -394,7 +434,7 @@ type LicenseContext struct {
 // are limited to caps the engine actively meters.
 type LicenseQuotas struct {
 	MaxTenants               int `json:"max_tenants"`
-	MaxIntegrationTypes       int `json:"max_integration_types"`
+	MaxIntegrationTypes      int `json:"max_integration_types"`
 	MaxAgenticSessionsPerDay int `json:"max_agentic_sessions_per_day,omitempty"`
 }
 

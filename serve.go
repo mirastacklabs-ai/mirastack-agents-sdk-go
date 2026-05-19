@@ -83,6 +83,15 @@ func Serve(plugin Plugin) {
 		otelShutdown = noopOTelShutdown
 	}
 
+	// Install MeterProvider — same gating as tracing. Failure here MUST
+	// NOT crash the plugin; metrics are observability, not core control
+	// flow, so we log + carry on with a no-op shutdown.
+	meterShutdown, meterErr := initMeterProvider(context.Background(), info.Name, logger)
+	if meterErr != nil {
+		logger.Warn("OTel metrics initialization failed, continuing without metrics", zap.Error(meterErr))
+		meterShutdown = noopMeterShutdown
+	}
+
 	server := grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
@@ -173,6 +182,9 @@ func Serve(plugin Plugin) {
 		defer cancel()
 		if err := otelShutdown(shutdownCtx); err != nil {
 			logger.Warn("OTel shutdown error", zap.Error(err))
+		}
+		if err := meterShutdown(shutdownCtx); err != nil {
+			logger.Warn("OTel metrics shutdown error", zap.Error(err))
 		}
 		server.GracefulStop()
 	}()

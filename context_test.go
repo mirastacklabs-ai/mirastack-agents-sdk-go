@@ -17,12 +17,18 @@ import (
 
 type mockEngineClient struct {
 	pluginv1.EngineServiceClient
-	mu             sync.Mutex
-	callCount      int64
-	config         map[string]string
-	err            error
-	batchEntries   []pluginv1.CacheGetBatchEntry
-	batchErr       error
+	mu           sync.Mutex
+	callCount    int64
+	config       map[string]string
+	err          error
+	batchEntries []pluginv1.CacheGetBatchEntry
+	batchErr     error
+	listReq      *pluginv1.ListKPIsRequest
+	listResp     *pluginv1.ListKPIsResponse
+	listErr      error
+	getReq       *pluginv1.GetKPIRequest
+	getResp      *pluginv1.GetKPIResponse
+	getErr       error
 }
 
 func (m *mockEngineClient) GetConfig(_ context.Context, req *pluginv1.GetConfigRequest) (*pluginv1.GetConfigResponse, error) {
@@ -46,6 +52,28 @@ func (m *mockEngineClient) CacheGetBatch(_ context.Context, req *pluginv1.CacheG
 	return &pluginv1.CacheGetBatchResponse{Entries: m.batchEntries}, nil
 }
 
+func (m *mockEngineClient) ListKPIs(_ context.Context, req *pluginv1.ListKPIsRequest) (*pluginv1.ListKPIsResponse, error) {
+	m.listReq = req
+	if m.listErr != nil {
+		return nil, m.listErr
+	}
+	if m.listResp == nil {
+		return &pluginv1.ListKPIsResponse{}, nil
+	}
+	return m.listResp, nil
+}
+
+func (m *mockEngineClient) GetKPI(_ context.Context, req *pluginv1.GetKPIRequest) (*pluginv1.GetKPIResponse, error) {
+	m.getReq = req
+	if m.getErr != nil {
+		return nil, m.getErr
+	}
+	if m.getResp == nil {
+		return &pluginv1.GetKPIResponse{}, nil
+	}
+	return m.getResp, nil
+}
+
 func (m *mockEngineClient) calls() int64 {
 	return atomic.LoadInt64(&m.callCount)
 }
@@ -55,6 +83,7 @@ func newTestEngineContext(mock *mockEngineClient) *EngineContext {
 		engineAddr: "localhost:0",
 		pluginName: "test-plugin",
 		instanceID: "test-instance-001",
+		tenantID:   "018ec9c7-5f3c-7f2e-a10f-111111111111",
 		client:     mock,
 		configTTL:  defaultConfigCacheTTL,
 	}
@@ -294,5 +323,82 @@ func TestCacheGetBatch_Error(t *testing.T) {
 	_, err := ec.CacheGetBatch(context.Background(), []string{"k1"})
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestListKPIs_AutoStampsTenantAndMapsResponse(t *testing.T) {
+	mock := &mockEngineClient{
+		listResp: &pluginv1.ListKPIsResponse{KPIs: []pluginv1.KPIView{
+			{
+				ID:            "kpi-1",
+				TenantID:      "018ec9c7-5f3c-7f2e-a10f-111111111111",
+				Name:          "Error Rate",
+				Query:         "sum(rate(http_requests_total{status=~\"5..\"}[5m]))",
+				IntegrationID: "vm-main",
+				Kind:          "business",
+				Layer:         "gold",
+				Sentiment:     "negative",
+				Classifier:    "stability",
+				Definition:    "5xx error rate",
+				CreatedAt:     100,
+				UpdatedAt:     101,
+			},
+		}},
+	}
+	ec := newTestEngineContext(mock)
+
+	out, err := ec.ListKPIs(context.Background(), KPIFilter{Kind: "business", Layer: "gold"})
+	if err != nil {
+		t.Fatalf("ListKPIs: %v", err)
+	}
+	if mock.listReq == nil {
+		t.Fatal("expected list request to be captured")
+	}
+	if mock.listReq.TenantId != ec.tenantID {
+		t.Fatalf("expected tenant_id %q, got %q", ec.tenantID, mock.listReq.TenantId)
+	}
+	if mock.listReq.Kind != "business" || mock.listReq.Layer != "gold" {
+		t.Fatalf("unexpected filter in request: %+v", mock.listReq)
+	}
+	if len(out) != 1 {
+		t.Fatalf("expected 1 KPI, got %d", len(out))
+	}
+	if out[0].ID != "kpi-1" || out[0].Kind != "business" {
+		t.Fatalf("unexpected KPI mapping: %+v", out[0])
+	}
+}
+
+func TestGetKPI_AutoStampsTenantAndMapsResponse(t *testing.T) {
+	mock := &mockEngineClient{
+		getResp: &pluginv1.GetKPIResponse{KPI: &pluginv1.KPIView{
+			ID:            "kpi-2",
+			TenantID:      "018ec9c7-5f3c-7f2e-a10f-111111111111",
+			Name:          "Latency",
+			Query:         "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+			IntegrationID: "vm-main",
+			Kind:          "technical",
+			Layer:         "silver",
+			Sentiment:     "negative",
+			Classifier:    "latency",
+			Definition:    "P95 latency",
+		}},
+	}
+	ec := newTestEngineContext(mock)
+
+	out, err := ec.GetKPI(context.Background(), "kpi-2")
+	if err != nil {
+		t.Fatalf("GetKPI: %v", err)
+	}
+	if mock.getReq == nil {
+		t.Fatal("expected get request to be captured")
+	}
+	if mock.getReq.TenantId != ec.tenantID {
+		t.Fatalf("expected tenant_id %q, got %q", ec.tenantID, mock.getReq.TenantId)
+	}
+	if mock.getReq.KPIID != "kpi-2" {
+		t.Fatalf("expected kpi_id kpi-2, got %q", mock.getReq.KPIID)
+	}
+	if out == nil || out.ID != "kpi-2" || out.Kind != "technical" {
+		t.Fatalf("unexpected KPI result: %+v", out)
 	}
 }

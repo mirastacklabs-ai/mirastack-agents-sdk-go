@@ -140,6 +140,82 @@ func (ec *EngineContext) GetConfig(ctx context.Context) (map[string]string, erro
 	return result, nil
 }
 
+// KPIFilter narrows ListKPIs requests for the plugin's tenant.
+type KPIFilter struct {
+	Kind  string
+	Layer string
+}
+
+// KPIView is the SDK-side representation of an engine KPI definition.
+type KPIView struct {
+	ID            string
+	TenantID      string
+	Name          string
+	Query         string
+	IntegrationID string
+	Kind          string
+	Layer         string
+	Sentiment     string
+	Classifier    string
+	Definition    string
+	CreatedAt     int64
+	UpdatedAt     int64
+	CreatedBy     string
+	UpdatedBy     string
+}
+
+func mapKPIView(v pluginv1.KPIView) KPIView {
+	return KPIView{
+		ID:            v.ID,
+		TenantID:      v.TenantID,
+		Name:          v.Name,
+		Query:         v.Query,
+		IntegrationID: v.IntegrationID,
+		Kind:          v.Kind,
+		Layer:         v.Layer,
+		Sentiment:     v.Sentiment,
+		Classifier:    v.Classifier,
+		Definition:    v.Definition,
+		CreatedAt:     v.CreatedAt,
+		UpdatedAt:     v.UpdatedAt,
+		CreatedBy:     v.CreatedBy,
+		UpdatedBy:     v.UpdatedBy,
+	}
+}
+
+// ListKPIs retrieves KPI definitions in the plugin's tenant with optional filters.
+func (ec *EngineContext) ListKPIs(ctx context.Context, filter KPIFilter) ([]KPIView, error) {
+	resp, err := ec.client.ListKPIs(ctx, &pluginv1.ListKPIsRequest{
+		TenantId: ec.tenantID,
+		Kind:     filter.Kind,
+		Layer:    filter.Layer,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list kpis: %w", err)
+	}
+	out := make([]KPIView, len(resp.KPIs))
+	for i := range resp.KPIs {
+		out[i] = mapKPIView(resp.KPIs[i])
+	}
+	return out, nil
+}
+
+// GetKPI fetches a single KPI definition by ID in the plugin's tenant.
+func (ec *EngineContext) GetKPI(ctx context.Context, kpiID string) (*KPIView, error) {
+	resp, err := ec.client.GetKPI(ctx, &pluginv1.GetKPIRequest{
+		TenantId: ec.tenantID,
+		KPIID:    kpiID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("get kpi %q: %w", kpiID, err)
+	}
+	if resp.KPI == nil {
+		return nil, nil
+	}
+	k := mapKPIView(*resp.KPI)
+	return &k, nil
+}
+
 // CacheGet retrieves a value from the engine's Valkey cache.
 func (ec *EngineContext) CacheGet(ctx context.Context, key string) (string, error) {
 	resp, err := ec.client.CacheGet(ctx, &pluginv1.CacheGetRequest{Key: key, TenantId: ec.tenantID})

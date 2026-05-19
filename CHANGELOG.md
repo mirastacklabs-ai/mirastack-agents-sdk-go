@@ -24,6 +24,46 @@ README links to the counterpart's release notes for the actual feature.
 All MIRASTACK agents — Go and Python — MUST be on the latest paired SDK
 minor before the engine cuts a release; the engine's CI gate enforces this.
 
+## [1.10.0] — 2026-05
+
+### Added
+- `EngineContext.ListKPIs(ctx, KPIFilter{Kind, Layer})` and
+  `EngineContext.GetKPI(ctx, kpiID)` — typed engine callbacks that let
+  agent plugins read the tenant's KPI definitions from the engine's
+  Kine-backed KPI store without reaching into Kine directly. Both calls
+  are tenant-scoped server-side via the SDK's auto-stamped `tenant_id`.
+- `KPIView` typed struct mirroring the engine's KPI row
+  (`id`, `tenant_id`, `name`, `query`, `integration_id`, `kind`, `layer`,
+  `sentiment`, `classifier`, `definition`, `created_at`, `updated_at`,
+  `created_by`, `updated_by`).
+- New gRPC methods `EngineService.ListKPIs` and `EngineService.GetKPI`
+  on the engine handshake contract. Plugins built against an engine that
+  has not yet implemented these handlers receive a gRPC `Unimplemented`
+  status and the SDK surfaces a typed error.
+- OpenTelemetry `MeterProvider` initialised in `Serve()` alongside the
+  existing `TracerProvider`. Gated by `MIRASTACK_OTEL_ENABLED` and the
+  standard `OTEL_EXPORTER_OTLP_*` env vars. Emits the standard gRPC
+  server + client metrics from `otelgrpc`. New `obs/` sub-package
+  exposes counters/histograms agent authors can use to instrument their
+  domain logic.
+
+### Engine prerequisite
+The engine must implement `internal/grpcserver.EngineService.ListKPIs`
+and `GetKPI` backed by the Kine prefix `/mirastack/{tenant_id}/kpis/`
+before plugins relying on these APIs can be deployed. The engine
+release that ships these handlers is the paired minimum for
+`v1.10.0`.
+
+## [1.9.0] — 2026-05
+
+### Added
+- `PluginService.ChatStream` server-streaming RPC for LLM token-delta
+  emission. Provider plugins implementing the new
+  `ChatStreamingPlugin` capability interface drive real streaming;
+  others fall back to buffered Complete + word-boundary emission via
+  the SDK adapter. Agent plugins do not implement ChatStream
+  themselves — the API is exposed here for SDK symmetry.
+
 ## [1.8.0] — 2026-05-01
 
 ### Changed (BREAKING)
