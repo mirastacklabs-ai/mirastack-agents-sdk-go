@@ -56,7 +56,14 @@ func initMeterProvider(ctx context.Context, pluginName string, logger *zap.Logge
 		return noopMeterShutdown, fmt.Errorf("otel metrics resource: %w", err)
 	}
 
-	exp, err := otlpmetricgrpc.New(ctx)
+	var metricOpts []otlpmetricgrpc.Option
+	if ep, ok := metricsOTLPEndpointFromEnv(); ok {
+		metricOpts = append(metricOpts, otlpmetricgrpc.WithEndpoint(ep))
+	}
+	if metricsOTLPInsecureFromEnv() {
+		metricOpts = append(metricOpts, otlpmetricgrpc.WithInsecure())
+	}
+	exp, err := otlpmetricgrpc.New(ctx, metricOpts...)
 	if err != nil {
 		return noopMeterShutdown, fmt.Errorf("otel metrics exporter: %w", err)
 	}

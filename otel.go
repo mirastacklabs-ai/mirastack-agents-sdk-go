@@ -74,7 +74,14 @@ func initOTel(ctx context.Context, pluginName string, logger *zap.Logger) (shutd
 		return noopOTelShutdown, fmt.Errorf("otel resource: %w", err)
 	}
 
-	exporter, err := otlptracegrpc.New(ctx)
+	var traceOpts []otlptracegrpc.Option
+	if ep, ok := traceOTLPEndpointFromEnv(); ok {
+		traceOpts = append(traceOpts, otlptracegrpc.WithEndpoint(ep))
+	}
+	if traceOTLPInsecureFromEnv() {
+		traceOpts = append(traceOpts, otlptracegrpc.WithInsecure())
+	}
+	exporter, err := otlptracegrpc.New(ctx, traceOpts...)
 	if err != nil {
 		return noopOTelShutdown, fmt.Errorf("otel exporter: %w", err)
 	}
