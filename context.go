@@ -285,17 +285,56 @@ func (ec *EngineContext) PublishResult(ctx context.Context, executionID string, 
 	return nil
 }
 
-// RequestApproval pauses execution and waits for human approval.
-func (ec *EngineContext) RequestApproval(ctx context.Context, executionID, reason string) (bool, error) {
+// RequestApproval pauses execution and waits for human approval for an action
+// at the given permission level. The permission MUST reflect the side-effect
+// class of the action being gated (PermissionModify for stateful changes,
+// PermissionAdmin for destructive/privileged operations). The engine uses the
+// permission to:
+//
+//   - choose the minimum approver role (engineer for MODIFY, admin for ADMIN);
+//   - emit the correct human-readable label on the approval card surfaced to
+//     the chat / web client; and
+//   - run the approval-mode policy check (see internal/approval/modes.go).
+//
+// Passing PermissionRead is rejected by the engine — read actions never
+// require human approval. Passing PermissionUnspecified (the zero value) is
+// treated as PermissionModify (the conservative default) but emits a warning
+// in the engine log; new plugin code MUST pass an explicit permission.
+//
+// StepID is sourced from the gRPC step id propagated by pluginmgr when
+// available; pass an empty string when the caller does not know the step id.
+func (ec *EngineContext) RequestApproval(ctx context.Context, executionID, reason string, permission Permission) (bool, error) {
 	resp, err := ec.client.RequestApproval(ctx, &pluginv1.RequestApprovalRequest{
-		ExecutionId: executionID,
-		Description: reason,
-		TenantId:    ec.tenantID,
+		ExecutionId:        executionID,
+		Description:        reason,
+		TenantId:           ec.tenantID,
+		RequiredPermission: permissionToProto(permission),
 	})
 	if err != nil {
 		return false, fmt.Errorf("request approval: %w", err)
 	}
 	return resp.Approved, nil
+}
+
+// permissionToProto converts the SDK-side Permission iota (Read=0, Modify=1,
+// Admin=2) to the proto-side pluginv1.Permission enum (Unspecified=0, Read=1,
+// Modify=2, Admin=3). The +1 offset matches the conversion used elsewhere in
+// the SDK (see serve.go) and isolates plugin authors from the proto wire
+// format.
+func permissionToProto(p Permission) pluginv1.Permission {
+	switch p {
+	case PermissionRead:
+		return pluginv1.PermissionRead
+	case PermissionModify:
+		return pluginv1.PermissionModify
+	case PermissionAdmin:
+		return pluginv1.PermissionAdmin
+	default:
+		// Conservative default: anything unrecognised is treated as MODIFY
+		// so the engine still routes it through the approval queue rather
+		// than silently auto-approving.
+		return pluginv1.PermissionModify
+	}
 }
 
 // LogEvent sends a log entry to the engine's event stream.
