@@ -24,6 +24,27 @@ README links to the counterpart's release notes for the actual feature.
 All MIRASTACK agents — Go and Python — MUST be on the latest paired SDK
 minor before the engine cuts a release; the engine's CI gate enforces this.
 
+## [1.12.0] — 2026-07
+
+### Added
+- New `telemetrycache` package implementing shared telemetry caching primitives
+  for agent plugins:
+  - Query sanitization (`SanitizePromQL`)
+  - Deterministic cache keys (`Sha256_16`) with tenant-prefixed namespaces
+  - Adaptive/default step helpers and canonical step widening
+  - Clock-aligned chunking and microsecond trace bucketing with auto-widening
+  - Range merge/downsample helpers for metrics and log hits
+  - Tiered TTL strategy helpers (seconds and microseconds)
+  - Payload compression/decompression with gzip magic-byte detection and entry-size limits
+  - Bounded concurrency utilities for chunk fan-out
+  - Cache-aside query wrappers: `RangeQueryCached`, `StatsRangeCached`, `HitsCached`,
+    `InstantQueryCached`, `BucketedSearchCached`
+  - Retry helper `WithStepRetry` with one-step coarsening for 422 points overloads
+  - Typed backend status error `HTTPStatusError`
+- Unit test coverage for merge/downsample behaviors, chunk/bucket alignment,
+  TTL tiers, compression round-trip, sanitize/step utilities, retry behavior,
+  and `ec==nil` passthrough fallbacks.
+
 ## [1.10.0] — 2026-05
 
 ### Added
@@ -119,6 +140,7 @@ release that ships these handlers is the paired minimum for
 - gRPC keepalive on both server and `EngineContext` client.
 
 [1.8.0]: https://github.com/mirastacklabs-ai/mirastack-agents-sdk-go/releases/tag/v1.8.0
+[1.12.0]: https://github.com/mirastacklabs-ai/mirastack-agents-sdk-go/releases/tag/v1.12.0
 [1.7.1]: https://github.com/mirastacklabs-ai/mirastack-agents-sdk-go/releases/tag/v1.7.1
 [1.7.0]: https://github.com/mirastacklabs-ai/mirastack-agents-sdk-go/releases/tag/v1.7.0
 [1.6.0]: https://github.com/mirastacklabs-ai/mirastack-agents-sdk-go/releases/tag/v1.6.0
