@@ -285,6 +285,15 @@ func (ec *EngineContext) PublishResult(ctx context.Context, executionID string, 
 	return nil
 }
 
+// ApprovalRequestContext carries optional structured reviewer context for
+// RequestApprovalWithContext. ContextJSON should be a compact JSON object with
+// evidence relevant to the decision (target identifiers, dry-run output,
+// policy checks, etc.).
+type ApprovalRequestContext struct {
+	ContextJSON []byte
+	BlastRadius *pluginv1.BlastRadius
+}
+
 // RequestApproval pauses execution and waits for human approval for an action
 // at the given permission level. The permission MUST reflect the side-effect
 // class of the action being gated (PermissionModify for stateful changes,
@@ -304,11 +313,32 @@ func (ec *EngineContext) PublishResult(ctx context.Context, executionID string, 
 // StepID is sourced from the gRPC step id propagated by pluginmgr when
 // available; pass an empty string when the caller does not know the step id.
 func (ec *EngineContext) RequestApproval(ctx context.Context, executionID, reason string, permission Permission) (bool, error) {
+	return ec.RequestApprovalWithContext(ctx, executionID, reason, permission, nil)
+}
+
+// RequestApprovalWithContext is the structured variant of RequestApproval. It
+// lets agents attach machine-readable blast radius metadata and arbitrary JSON
+// evidence for human reviewers.
+func (ec *EngineContext) RequestApprovalWithContext(
+	ctx context.Context,
+	executionID, reason string,
+	permission Permission,
+	requestContext *ApprovalRequestContext,
+) (bool, error) {
+	var contextJSON []byte
+	var blastRadius *pluginv1.BlastRadius
+	if requestContext != nil {
+		contextJSON = requestContext.ContextJSON
+		blastRadius = requestContext.BlastRadius
+	}
+
 	resp, err := ec.client.RequestApproval(ctx, &pluginv1.RequestApprovalRequest{
 		ExecutionId:        executionID,
 		Description:        reason,
 		TenantId:           ec.tenantID,
 		RequiredPermission: permissionToProto(permission),
+		ContextJson:        contextJSON,
+		BlastRadius:        blastRadius,
 	})
 	if err != nil {
 		return false, fmt.Errorf("request approval: %w", err)
@@ -317,8 +347,8 @@ func (ec *EngineContext) RequestApproval(ctx context.Context, executionID, reaso
 }
 
 // permissionToProto converts the SDK-side Permission iota (Read=0, Modify=1,
-// Admin=2) to the proto-side pluginv1.Permission enum (Unspecified=0, Read=1,
-// Modify=2, Admin=3). The +1 offset matches the conversion used elsewhere in
+// Admin=2, Write=3) to the proto-side pluginv1.Permission enum (Unspecified=0, Read=1,
+// Modify=2, Admin=3, Write=4). The +1 offset matches the conversion used elsewhere in
 // the SDK (see serve.go) and isolates plugin authors from the proto wire
 // format.
 func permissionToProto(p Permission) pluginv1.Permission {
@@ -329,6 +359,8 @@ func permissionToProto(p Permission) pluginv1.Permission {
 		return pluginv1.PermissionModify
 	case PermissionAdmin:
 		return pluginv1.PermissionAdmin
+	case PermissionWrite:
+		return pluginv1.PermissionWrite
 	default:
 		// Conservative default: anything unrecognised is treated as MODIFY
 		// so the engine still routes it through the approval queue rather

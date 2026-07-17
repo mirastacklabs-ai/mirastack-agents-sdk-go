@@ -17,6 +17,7 @@ type PluginServiceServer interface {
 	Info(context.Context, *InfoRequest) (*InfoResponse, error)
 	GetSchema(context.Context, *GetSchemaRequest) (*GetSchemaResponse, error)
 	Execute(context.Context, *ExecuteRequest) (*ExecuteResponse, error)
+	Embed(context.Context, *EmbedRequest) (*EmbedResponse, error)
 	HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error)
 	ConfigUpdated(context.Context, *ConfigUpdatedRequest) (*ConfigUpdatedResponse, error)
 	// ChatStream is the server-streaming RPC that emits LLM token deltas as
@@ -38,6 +39,9 @@ func (UnimplementedPluginServiceServer) GetSchema(context.Context, *GetSchemaReq
 }
 func (UnimplementedPluginServiceServer) Execute(context.Context, *ExecuteRequest) (*ExecuteResponse, error) {
 	return nil, fmt.Errorf("Execute not implemented")
+}
+func (UnimplementedPluginServiceServer) Embed(context.Context, *EmbedRequest) (*EmbedResponse, error) {
+	return nil, fmt.Errorf("Embed not implemented")
 }
 func (UnimplementedPluginServiceServer) HealthCheck(context.Context, *HealthCheckRequest) (*HealthCheckResponse, error) {
 	return nil, fmt.Errorf("HealthCheck not implemented")
@@ -90,6 +94,7 @@ var PluginService_ServiceDesc = grpc.ServiceDesc{
 		{MethodName: "Info", Handler: _PluginService_Info_Handler},
 		{MethodName: "GetSchema", Handler: _PluginService_GetSchema_Handler},
 		{MethodName: "Execute", Handler: _PluginService_Execute_Handler},
+		{MethodName: "Embed", Handler: _PluginService_Embed_Handler},
 		{MethodName: "HealthCheck", Handler: _PluginService_HealthCheck_Handler},
 		{MethodName: "ConfigUpdated", Handler: _PluginService_ConfigUpdated_Handler},
 	},
@@ -133,6 +138,14 @@ func _PluginService_Execute_Handler(srv interface{}, ctx context.Context, dec fu
 	return srv.(PluginServiceServer).Execute(ctx, req)
 }
 
+func _PluginService_Embed_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
+	req := new(EmbedRequest)
+	if err := dec(req); err != nil {
+		return nil, err
+	}
+	return srv.(PluginServiceServer).Embed(ctx, req)
+}
+
 func _PluginService_HealthCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, _ grpc.UnaryServerInterceptor) (interface{}, error) {
 	req := new(HealthCheckRequest)
 	if err := dec(req); err != nil {
@@ -158,6 +171,7 @@ type PluginServiceClient interface {
 	Info(ctx context.Context) (*InfoResponse, error)
 	GetSchema(ctx context.Context) (*GetSchemaResponse, error)
 	Execute(ctx context.Context, req *ExecuteRequest) (*ExecuteResponse, error)
+	Embed(ctx context.Context, req *EmbedRequest) (*EmbedResponse, error)
 	HealthCheck(ctx context.Context) (*HealthCheckResponse, error)
 	ConfigUpdated(ctx context.Context, req *ConfigUpdatedRequest) (*ConfigUpdatedResponse, error)
 	// ChatStream opens a server-streaming RPC. The caller iterates Recv() until
@@ -197,6 +211,15 @@ func (c *pluginServiceClient) GetSchema(ctx context.Context) (*GetSchemaResponse
 func (c *pluginServiceClient) Execute(ctx context.Context, req *ExecuteRequest) (*ExecuteResponse, error) {
 	out := new(ExecuteResponse)
 	err := c.cc.Invoke(ctx, "/mirastack.plugin.v1.PluginService/Execute", req, out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pluginServiceClient) Embed(ctx context.Context, req *EmbedRequest) (*EmbedResponse, error) {
+	out := new(EmbedResponse)
+	err := c.cc.Invoke(ctx, "/mirastack.plugin.v1.PluginService/Embed", req, out)
 	if err != nil {
 		return nil, err
 	}

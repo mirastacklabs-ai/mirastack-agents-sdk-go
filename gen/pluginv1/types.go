@@ -15,6 +15,7 @@ const (
 	PermissionRead        Permission = 1
 	PermissionModify      Permission = 2
 	PermissionAdmin       Permission = 3
+	PermissionWrite       Permission = 4
 )
 
 type DevOpsStage int32
@@ -275,6 +276,16 @@ type PublishResultResponse struct {
 	Acknowledged bool `json:"acknowledged"`
 }
 
+type BlastRadius struct {
+	ResourceType   string   `json:"resource_type"`
+	Resources      []string `json:"resources,omitempty"`
+	Scope          string   `json:"scope"`
+	Reversible     bool     `json:"reversible"`
+	EstimatedCount int32    `json:"estimated_count,omitempty"`
+	Regions        []string `json:"regions,omitempty"`
+	Summary        string   `json:"summary"`
+}
+
 type RequestApprovalRequest struct {
 	ExecutionId        string     `json:"execution_id"`
 	StepId             string     `json:"step_id"`
@@ -284,7 +295,8 @@ type RequestApprovalRequest struct {
 	TimeoutSeconds     int32      `json:"timeout_seconds"`
 	// TenantId is auto-stamped by the SDK; engine refuses approvals from
 	// suspended/deleted tenants.
-	TenantId string `json:"tenant_id"`
+	TenantId    string       `json:"tenant_id"`
+	BlastRadius *BlastRadius `json:"blast_radius,omitempty"`
 }
 
 type RequestApprovalResponse struct {
@@ -463,4 +475,20 @@ type ChatTokenResponse struct {
 	Token   string `json:"token,omitempty"`
 	IsFinal bool   `json:"is_final,omitempty"`
 	Error   string `json:"error,omitempty"`
+}
+
+// EmbedRequest is the unary request payload for PluginService.Embed.
+// Inputs should contain one or more texts to embed with the given model.
+type EmbedRequest struct {
+	Model    string   `json:"model"`
+	Inputs   []string `json:"inputs"`
+	TenantId string   `json:"tenant_id"`
+}
+
+// EmbedResponse carries vectors produced by PluginService.Embed.
+type EmbedResponse struct {
+	Vectors    [][]float32 `json:"vectors"`
+	Model      string      `json:"model"`
+	Dimensions int         `json:"dimensions"`
+	Error      string      `json:"error"`
 }

@@ -141,6 +141,7 @@ const (
 	PermissionRead Permission = iota
 	PermissionModify
 	PermissionAdmin
+	PermissionWrite
 )
 
 // DevOpsStage represents a step in the DevOps infinity loop.

@@ -29,6 +29,9 @@ type mockEngineClient struct {
 	getReq       *pluginv1.GetKPIRequest
 	getResp      *pluginv1.GetKPIResponse
 	getErr       error
+	approvalReq  *pluginv1.RequestApprovalRequest
+	approvalResp *pluginv1.RequestApprovalResponse
+	approvalErr  error
 }
 
 func (m *mockEngineClient) GetConfig(_ context.Context, req *pluginv1.GetConfigRequest) (*pluginv1.GetConfigResponse, error) {
@@ -72,6 +75,17 @@ func (m *mockEngineClient) GetKPI(_ context.Context, req *pluginv1.GetKPIRequest
 		return &pluginv1.GetKPIResponse{}, nil
 	}
 	return m.getResp, nil
+}
+
+func (m *mockEngineClient) RequestApproval(_ context.Context, req *pluginv1.RequestApprovalRequest) (*pluginv1.RequestApprovalResponse, error) {
+	m.approvalReq = req
+	if m.approvalErr != nil {
+		return nil, m.approvalErr
+	}
+	if m.approvalResp == nil {
+		return &pluginv1.RequestApprovalResponse{Approved: true}, nil
+	}
+	return m.approvalResp, nil
 }
 
 func (m *mockEngineClient) calls() int64 {
@@ -400,5 +414,82 @@ func TestGetKPI_AutoStampsTenantAndMapsResponse(t *testing.T) {
 	}
 	if out == nil || out.ID != "kpi-2" || out.Kind != "technical" {
 		t.Fatalf("unexpected KPI result: %+v", out)
+	}
+}
+
+func TestRequestApprovalWithContext_PassesBlastRadiusAndEvidence(t *testing.T) {
+	mock := &mockEngineClient{
+		approvalResp: &pluginv1.RequestApprovalResponse{Approved: true},
+	}
+	ec := newTestEngineContext(mock)
+
+	approved, err := ec.RequestApprovalWithContext(
+		context.Background(),
+		"exec-1",
+		"Apply rollout",
+		PermissionModify,
+		&ApprovalRequestContext{
+			ContextJSON: []byte(`{"change_id":"chg-7","plan":"rolling"}`),
+			BlastRadius: &pluginv1.BlastRadius{
+				ResourceType:   "kubernetes.deployment",
+				Resources:      []string{"prod/payments-api"},
+				Scope:          "namespace",
+				Reversible:     true,
+				EstimatedCount: 1,
+				Regions:        []string{"us-east-1"},
+				Summary:        "Rollout payments-api in prod namespace",
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("RequestApprovalWithContext: %v", err)
+	}
+	if !approved {
+		t.Fatalf("expected approved=true")
+	}
+	if mock.approvalReq == nil {
+		t.Fatalf("approval request was not captured")
+	}
+	if mock.approvalReq.TenantId != ec.tenantID {
+		t.Fatalf("tenant_id=%q want %q", mock.approvalReq.TenantId, ec.tenantID)
+	}
+	if string(mock.approvalReq.ContextJson) != `{"change_id":"chg-7","plan":"rolling"}` {
+		t.Fatalf("context_json=%s", string(mock.approvalReq.ContextJson))
+	}
+	if mock.approvalReq.BlastRadius == nil {
+		t.Fatalf("expected blast_radius to be forwarded")
+	}
+	if mock.approvalReq.BlastRadius.Summary != "Rollout payments-api in prod namespace" {
+		t.Fatalf("blast radius summary mismatch: %q", mock.approvalReq.BlastRadius.Summary)
+	}
+}
+
+func TestPermissionToProto_IncludesWrite(t *testing.T) {
+	if got := permissionToProto(PermissionWrite); got != pluginv1.PermissionWrite {
+		t.Fatalf("permissionToProto(PermissionWrite)=%v want %v", got, pluginv1.PermissionWrite)
+	}
+}
+
+func TestRequestApproval_DefaultMethodWithoutContext(t *testing.T) {
+	mock := &mockEngineClient{
+		approvalResp: &pluginv1.RequestApprovalResponse{Approved: true},
+	}
+	ec := newTestEngineContext(mock)
+
+	approved, err := ec.RequestApproval(context.Background(), "exec-2", "Need gate", PermissionAdmin)
+	if err != nil {
+		t.Fatalf("RequestApproval: %v", err)
+	}
+	if !approved {
+		t.Fatalf("expected approved=true")
+	}
+	if mock.approvalReq == nil {
+		t.Fatalf("approval request was not captured")
+	}
+	if len(mock.approvalReq.ContextJson) != 0 {
+		t.Fatalf("expected empty context_json for default path")
+	}
+	if mock.approvalReq.BlastRadius != nil {
+		t.Fatalf("expected nil blast_radius for default path")
 	}
 }
