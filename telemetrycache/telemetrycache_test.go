@@ -17,6 +17,30 @@ func TestSanitizePromQL(t *testing.T) {
 	}
 }
 
+func TestSanitizeLogsQL_PreservesBalancedQuotes(t *testing.T) {
+	in := `  service_name:"payments"  `
+	got := SanitizeLogsQL(in)
+	if got != `service_name:"payments"` {
+		t.Fatalf("sanitize logsql mismatch: %q", got)
+	}
+}
+
+func TestSanitizeLogsQL_RemovesTrailingSemicolonOutsideQuotes(t *testing.T) {
+	in := `service_name:"payments";`
+	got := SanitizeLogsQL(in)
+	if got != `service_name:"payments"` {
+		t.Fatalf("sanitize logsql mismatch: %q", got)
+	}
+}
+
+func TestSanitizeLogsQL_PreservesSemicolonInsideQuotes(t *testing.T) {
+	in := `_msg:"timeout; retry"`
+	got := SanitizeLogsQL(in)
+	if got != `_msg:"timeout; retry"` {
+		t.Fatalf("sanitize logsql mismatch: %q", got)
+	}
+}
+
 func TestAdaptiveStepTiers(t *testing.T) {
 	start := int64(0)
 	tests := []struct {

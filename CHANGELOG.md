@@ -24,6 +24,17 @@ README links to the counterpart's release notes for the actual feature.
 All MIRASTACK agents — Go and Python — MUST be on the latest paired SDK
 minor before the engine cuts a release; the engine's CI gate enforces this.
 
+## [1.13.1] — 2026-07
+
+### Fixed
+- Added `telemetrycache.SanitizeLogsQL()` to preserve valid quoted LogsQL
+  expressions while still stripping wrapper artifacts (for example markdown
+  code fences) and trailing semicolons outside quotes.
+- Updated `telemetrycache.StatsRangeCached()` and
+  `telemetrycache.HitsCached()` to sanitize with LogsQL-safe logic instead of
+  PromQL sanitization, preventing query corruption in VictoriaLogs cache-aside
+  paths.
+
 ## [1.12.0] — 2026-07
 
 ### Added

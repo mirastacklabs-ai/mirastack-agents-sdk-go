@@ -21,7 +21,7 @@ func StatsRangeCached(
 	if fetch == nil {
 		return nil, fmt.Errorf("stats range fetch callback is required")
 	}
-	query = SanitizePromQL(query)
+	query = SanitizeLogsQL(query)
 	if ec == nil || tenantID(ec) == "" {
 		return fetch(startSec, endSec, userStep)
 	}
@@ -138,7 +138,7 @@ func HitsCached(
 	if fetch == nil {
 		return nil, fmt.Errorf("hits fetch callback is required")
 	}
-	query = SanitizePromQL(query)
+	query = SanitizeLogsQL(query)
 	if query == "" {
 		query = "*"
 	}
