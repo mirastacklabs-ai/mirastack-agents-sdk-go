@@ -389,7 +389,8 @@ func (ec *EngineContext) LogEvent(ctx context.Context, level, message string, fi
 }
 
 // CallPlugin invokes another plugin through the engine and returns its output.
-// This enables composite plugins to orchestrate leaf plugins without direct connections.
+// This legacy helper preserves map[string]string semantics for existing agents.
+// Non-string output values are JSON-encoded as strings.
 func (ec *EngineContext) CallPlugin(ctx context.Context, targetPlugin string, params map[string]string) (map[string]string, error) {
 	return ec.CallPluginWithTimeRange(ctx, targetPlugin, params, nil)
 }
@@ -398,7 +399,51 @@ func (ec *EngineContext) CallPlugin(ctx context.Context, targetPlugin string, pa
 // the given TimeRange so the target plugin receives the same absolute time
 // boundaries as the original request. Use this when orchestrating agent-to-agent
 // calls from within an Execute() handler to prevent time drift.
+//
+// This legacy helper preserves map[string]string semantics for existing agents.
+// Non-string output values are JSON-encoded as strings.
 func (ec *EngineContext) CallPluginWithTimeRange(ctx context.Context, targetPlugin string, params map[string]string, timeRange *pluginv1.TimeRange) (map[string]string, error) {
+	rawParams := make(map[string]any, len(params))
+	for k, v := range params {
+		rawParams[k] = v
+	}
+	resp, err := ec.CallPluginJSONWithTimeRange(ctx, targetPlugin, rawParams, timeRange)
+	if err != nil {
+		return nil, err
+	}
+	return coerceJSONMapToStringMap(resp)
+}
+
+// CallPluginJSON invokes another plugin and returns a native JSON object map.
+func (ec *EngineContext) CallPluginJSON(ctx context.Context, targetPlugin string, params map[string]any) (map[string]any, error) {
+	return ec.CallPluginJSONWithTimeRange(ctx, targetPlugin, params, nil)
+}
+
+// CallPluginJSONWithTimeRange invokes another plugin through the engine and
+// returns a native JSON object map.
+func (ec *EngineContext) CallPluginJSONWithTimeRange(ctx context.Context, targetPlugin string, params map[string]any, timeRange *pluginv1.TimeRange) (map[string]any, error) {
+	raw, err := ec.CallPluginRawWithTimeRange(ctx, targetPlugin, params, timeRange)
+	if err != nil {
+		return nil, err
+	}
+	var output map[string]any
+	if len(raw) == 0 {
+		return map[string]any{}, nil
+	}
+	if err := json.Unmarshal(raw, &output); err != nil {
+		return nil, fmt.Errorf("unmarshal plugin %q response: %w", targetPlugin, err)
+	}
+	return output, nil
+}
+
+// CallPluginRaw invokes another plugin through the engine and returns raw JSON.
+func (ec *EngineContext) CallPluginRaw(ctx context.Context, targetPlugin string, params map[string]any) (json.RawMessage, error) {
+	return ec.CallPluginRawWithTimeRange(ctx, targetPlugin, params, nil)
+}
+
+// CallPluginRawWithTimeRange invokes another plugin through the engine,
+// propagating the absolute time range and returning raw JSON.
+func (ec *EngineContext) CallPluginRawWithTimeRange(ctx context.Context, targetPlugin string, params map[string]any, timeRange *pluginv1.TimeRange) (json.RawMessage, error) {
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("marshal params: %w", err)
@@ -417,12 +462,30 @@ func (ec *EngineContext) CallPluginWithTimeRange(ctx context.Context, targetPlug
 	if !resp.Success {
 		return nil, fmt.Errorf("plugin %q returned error: %s", targetPlugin, resp.Error)
 	}
+	return json.RawMessage(resp.ResultJson), nil
+}
 
-	var output map[string]string
-	if err := json.Unmarshal(resp.ResultJson, &output); err != nil {
-		return nil, fmt.Errorf("unmarshal plugin %q response: %w", targetPlugin, err)
+func coerceJSONMapToStringMap(input map[string]any) (map[string]string, error) {
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		switch v := value.(type) {
+		case nil:
+			out[key] = ""
+		case string:
+			out[key] = v
+		case bool:
+			out[key] = strconv.FormatBool(v)
+		case float64:
+			out[key] = strconv.FormatFloat(v, 'f', -1, 64)
+		default:
+			raw, err := json.Marshal(v)
+			if err != nil {
+				return nil, fmt.Errorf("marshal plugin response field %q: %w", key, err)
+			}
+			out[key] = string(raw)
+		}
 	}
-	return output, nil
+	return out, nil
 }
 
 // Close cleans up the gRPC connection.
