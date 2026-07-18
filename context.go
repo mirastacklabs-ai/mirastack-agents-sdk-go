@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -444,6 +445,9 @@ func (ec *EngineContext) CallPluginRaw(ctx context.Context, targetPlugin string,
 // CallPluginRawWithTimeRange invokes another plugin through the engine,
 // propagating the absolute time range and returning raw JSON.
 func (ec *EngineContext) CallPluginRawWithTimeRange(ctx context.Context, targetPlugin string, params map[string]any, timeRange *pluginv1.TimeRange) (json.RawMessage, error) {
+	if err := validateTargetPluginName(targetPlugin); err != nil {
+		return nil, err
+	}
 	paramsJSON, err := json.Marshal(params)
 	if err != nil {
 		return nil, fmt.Errorf("marshal params: %w", err)
@@ -463,6 +467,20 @@ func (ec *EngineContext) CallPluginRawWithTimeRange(ctx context.Context, targetP
 		return nil, fmt.Errorf("plugin %q returned error: %s", targetPlugin, resp.Error)
 	}
 	return json.RawMessage(resp.ResultJson), nil
+}
+
+func validateTargetPluginName(targetPlugin string) error {
+	normalized := strings.TrimSpace(targetPlugin)
+	if normalized == "" {
+		return fmt.Errorf("target plugin is required")
+	}
+	if strings.Contains(normalized, ":") {
+		return fmt.Errorf(
+			"target plugin %q is invalid: pass plugin name only and set action in params",
+			targetPlugin,
+		)
+	}
+	return nil
 }
 
 func coerceJSONMapToStringMap(input map[string]any) (map[string]string, error) {

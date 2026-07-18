@@ -2,6 +2,7 @@ package mirastack
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,9 @@ type mockEngineClient struct {
 	approvalReq  *pluginv1.RequestApprovalRequest
 	approvalResp *pluginv1.RequestApprovalResponse
 	approvalErr  error
+	callPluginReq  *pluginv1.CallPluginRequest
+	callPluginResp *pluginv1.CallPluginResponse
+	callPluginErr  error
 }
 
 func (m *mockEngineClient) GetConfig(_ context.Context, req *pluginv1.GetConfigRequest) (*pluginv1.GetConfigResponse, error) {
@@ -86,6 +90,20 @@ func (m *mockEngineClient) RequestApproval(_ context.Context, req *pluginv1.Requ
 		return &pluginv1.RequestApprovalResponse{Approved: true}, nil
 	}
 	return m.approvalResp, nil
+}
+
+func (m *mockEngineClient) CallPlugin(_ context.Context, req *pluginv1.CallPluginRequest) (*pluginv1.CallPluginResponse, error) {
+	m.callPluginReq = req
+	if m.callPluginErr != nil {
+		return nil, m.callPluginErr
+	}
+	if m.callPluginResp != nil {
+		return m.callPluginResp, nil
+	}
+	return &pluginv1.CallPluginResponse{
+		Success:    true,
+		ResultJson: []byte(`{}`),
+	}, nil
 }
 
 func (m *mockEngineClient) calls() int64 {
@@ -491,5 +509,84 @@ func TestRequestApproval_DefaultMethodWithoutContext(t *testing.T) {
 	}
 	if mock.approvalReq.BlastRadius != nil {
 		t.Fatalf("expected nil blast_radius for default path")
+	}
+}
+
+func TestValidateTargetPluginNameRejectsColon(t *testing.T) {
+	err := validateTargetPluginName("query_vmetrics:range_query")
+	if err == nil {
+		t.Fatalf("expected validation error for colon-qualified target")
+	}
+}
+
+func TestCallPluginRawWithTimeRange_RejectsColonTarget(t *testing.T) {
+	mock := &mockEngineClient{}
+	ec := newTestEngineContext(mock)
+	_, err := ec.CallPluginRawWithTimeRange(context.Background(), "query_vmetrics:range_query", map[string]any{
+		"action": "range_query",
+		"query":  "up",
+	}, nil)
+	if err == nil {
+		t.Fatalf("expected error for colon-qualified target")
+	}
+	if mock.callPluginReq != nil {
+		t.Fatalf("expected no gRPC call when target validation fails")
+	}
+}
+
+func TestCallPluginRawWithTimeRange_PreservesNativeJSONParams(t *testing.T) {
+	mock := &mockEngineClient{
+		callPluginResp: &pluginv1.CallPluginResponse{
+			Success:    true,
+			ResultJson: []byte(`{"status":"ok"}`),
+		},
+	}
+	ec := newTestEngineContext(mock)
+	params := map[string]any{
+		"action": "range_query",
+		"query":  "up",
+		"flags":  []any{true, false},
+		"meta":   map[string]any{"limit": 10, "live": true, "note": nil},
+	}
+	raw, err := ec.CallPluginRawWithTimeRange(context.Background(), "query_vmetrics", params, &pluginv1.TimeRange{
+		StartEpochMs: 1,
+		EndEpochMs:   2,
+		Timezone:     "UTC",
+	})
+	if err != nil {
+		t.Fatalf("CallPluginRawWithTimeRange: %v", err)
+	}
+	if string(raw) != `{"status":"ok"}` {
+		t.Fatalf("unexpected response payload: %s", string(raw))
+	}
+	if mock.callPluginReq == nil {
+		t.Fatalf("expected CallPlugin request capture")
+	}
+	if mock.callPluginReq.TargetPlugin != "query_vmetrics" {
+		t.Fatalf("target_plugin=%q", mock.callPluginReq.TargetPlugin)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(mock.callPluginReq.ParamsJson, &decoded); err != nil {
+		t.Fatalf("decode params_json: %v", err)
+	}
+	if decoded["action"] != "range_query" {
+		t.Fatalf("action=%v", decoded["action"])
+	}
+	flags, ok := decoded["flags"].([]any)
+	if !ok || len(flags) != 2 {
+		t.Fatalf("flags=%#v", decoded["flags"])
+	}
+	meta, ok := decoded["meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("meta=%#v", decoded["meta"])
+	}
+	if meta["limit"] != float64(10) {
+		t.Fatalf("meta.limit=%v", meta["limit"])
+	}
+	if live, _ := meta["live"].(bool); !live {
+		t.Fatalf("meta.live=%v", meta["live"])
+	}
+	if _, present := meta["note"]; !present {
+		t.Fatalf("meta.note key missing")
 	}
 }
