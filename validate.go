@@ -50,6 +50,9 @@ func validatePlugin(info *PluginInfo) error {
 		if len(act.Stages) == 0 {
 			errs = append(errs, fmt.Sprintf("action[%d] (%s): must declare at least one DevOps stage", i, act.ID))
 		}
+		if _, err := act.Routing.NormalizeAndValidate(); err != nil {
+			errs = append(errs, fmt.Sprintf("action[%d] (%s): invalid routing semantics: %v", i, act.ID, err))
+		}
 	}
 
 	// ── ConfigParam gates (when declared) ─────────────────────────────────

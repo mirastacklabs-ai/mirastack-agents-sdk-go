@@ -63,6 +63,17 @@ type IntentPattern struct {
 	Priority    int32   `json:"priority,omitempty"`
 }
 
+type RoutingSemantics struct {
+	SchemaVersion         string   `json:"schema_version"`
+	AcceptedIntentDomains []string `json:"accepted_intent_domains"`
+	CapabilityDomain      string   `json:"capability_domain"`
+	PositiveUseCases      []string `json:"positive_use_cases"`
+	NegativeUseCases      []string `json:"negative_use_cases"`
+	SignalDomains         []string `json:"signal_domains,omitempty"`
+	BackendDomains        []string `json:"backend_domains,omitempty"`
+	EntityTypes           []string `json:"entity_types,omitempty"`
+}
+
 // ActionDef describes a discrete operation a plugin can perform.
 // Actions are first-class entities that the engine maps intents to.
 type ActionDef struct {
@@ -73,6 +84,7 @@ type ActionDef struct {
 	Intents      []IntentPattern `json:"intents"`
 	InputParams  []byte          `json:"input_params,omitempty"`  // JSON schema
 	OutputParams []byte          `json:"output_params,omitempty"` // JSON schema
+	Routing      RoutingSemantics `json:"routing_semantics"`
 }
 
 // ConfigParamSchema describes a configuration parameter declared by a plugin.

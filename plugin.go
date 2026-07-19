@@ -64,6 +64,7 @@ type Action struct {
 	Intents      []IntentPattern
 	InputParams  []ParamSchema
 	OutputParams []ParamSchema
+	Routing      RoutingSemantics
 }
 
 // PluginSchema describes inputs and outputs.

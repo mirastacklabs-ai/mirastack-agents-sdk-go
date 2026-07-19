@@ -18,6 +18,16 @@ func validAgentInfo() *PluginInfo {
 				Description: "Run an instant PromQL query",
 				Permission:  PermissionRead,
 				Stages:      []DevOpsStage{StageObserve},
+				Routing: RoutingSemantics{
+					SchemaVersion:         RoutingSemanticsSchemaVersionV1,
+					AcceptedIntentDomains: []string{"core.observability.metric_query"},
+					CapabilityDomain:      "core.observability.metric_query",
+					PositiveUseCases:      []string{"Run instant metric query"},
+					NegativeUseCases:      []string{"Modify backup jobs"},
+					SignalDomains:         []string{"signal.metrics"},
+					BackendDomains:        []string{"backend.victoriametrics"},
+					EntityTypes:           []string{"entity.service"},
+				},
 			},
 		},
 	}
@@ -36,6 +46,13 @@ func TestValidatePlugin_ValidAgent_MultipleActions(t *testing.T) {
 		Description: "Run a range PromQL query",
 		Permission:  PermissionRead,
 		Stages:      []DevOpsStage{StageObserve},
+		Routing: RoutingSemantics{
+			SchemaVersion:         RoutingSemanticsSchemaVersionV1,
+			AcceptedIntentDomains: []string{"core.observability.metric_query"},
+			CapabilityDomain:      "core.observability.metric_query",
+			PositiveUseCases:      []string{"Run range metric query"},
+			NegativeUseCases:      []string{"Delete object storage buckets"},
+		},
 	})
 	if err := validatePlugin(info); err != nil {
 		t.Fatalf("unexpected error: %v", err)

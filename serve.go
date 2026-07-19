@@ -400,6 +400,10 @@ func actionsToProto(actions []Action) []pluginv1.ActionDef {
 		if len(act.OutputParams) > 0 {
 			outputJSON, _ = json.Marshal(act.OutputParams)
 		}
+		routing := act.Routing
+		if normalized, err := act.Routing.NormalizeAndValidate(); err == nil {
+			routing = normalized
+		}
 		defs[i] = pluginv1.ActionDef{
 			Id:           act.ID,
 			Description:  act.Description,
@@ -408,6 +412,16 @@ func actionsToProto(actions []Action) []pluginv1.ActionDef {
 			Intents:      intents,
 			InputParams:  inputJSON,
 			OutputParams: outputJSON,
+			Routing: pluginv1.RoutingSemantics{
+				SchemaVersion:         routing.SchemaVersion,
+				AcceptedIntentDomains: append([]string(nil), routing.AcceptedIntentDomains...),
+				CapabilityDomain:      routing.CapabilityDomain,
+				PositiveUseCases:      append([]string(nil), routing.PositiveUseCases...),
+				NegativeUseCases:      append([]string(nil), routing.NegativeUseCases...),
+				SignalDomains:         append([]string(nil), routing.SignalDomains...),
+				BackendDomains:        append([]string(nil), routing.BackendDomains...),
+				EntityTypes:           append([]string(nil), routing.EntityTypes...),
+			},
 		}
 	}
 	return defs
